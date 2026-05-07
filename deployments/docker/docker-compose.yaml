@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  proxy:
+    build: .
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8080:8080"
+    command:
+      - --backend-endpoint=otel-collector:4317
+      - --log-level=debug
+    volumes:
+      - proxy-data:/data
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "4319:4318"
+    command: --config=/etc/otel-collector-config.yaml
+    volumes:
+      - ./deployments/docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+
+volumes:
+  proxy-data:

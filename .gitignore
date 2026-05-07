@@ -1,0 +1,44 @@
+# Binaries
+/semconv-proxy
+/cmd/semconv-proxy/semconv-proxy
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Dependency
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/dist/
+/build/
+
+# Pebble data
+*.sst
+*.manifest
+MANIFEST-*
+OPTIONS-*
+LOCK
+WAL-*
+
+# Config
+*.local.yaml
+*.local.yml

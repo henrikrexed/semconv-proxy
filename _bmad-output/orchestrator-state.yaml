@@ -1,0 +1,18 @@
+project: collector-semantic-convention
+vm_host: 10.0.0.189
+vm_user: hrexed
+project_path: /mnt/nas/projects/collectorSemantic
+tmux_socket: /tmp/openclaw-tmux-sockets/openclaw.sock
+tmux_session: bmad-collector-semantic
+current_phase: 4
+current_workflow: sprint-planning-complete
+artifacts:
+  brainstorming_report: _bmad-output/brainstorming-report.md
+  party_mode_results: _bmad-output/party-mode-results.md
+  product_brief: null
+  prd: _bmad-output/prd.md
+  architecture: _bmad-output/planning-artifacts/architecture.md
+  epics: _bmad-output/planning-artifacts/epics-and-stories.md
+  sprint_plan: _bmad-output/planning-artifacts/sprint-plan.md
+  sprint_status: ready-for-implementation
+  project_context: null

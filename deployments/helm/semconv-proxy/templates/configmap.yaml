@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "semconv-proxy.fullname" . }}
+  labels:
+    {{- include "semconv-proxy.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    backend_endpoint: {{ .Values.config.backendEndpoint }}
+    log_level: {{ .Values.config.logLevel }}
+    data_dir: {{ .Values.config.dataDir }}
+    shard_count: {{ .Values.config.shardCount }}
+    global_budget: {{ .Values.config.globalBudget }}
+    per_attr_cap: {{ .Values.config.perAttrCap }}
+    ring_buffer_size: {{ .Values.config.ringBufferSize }}
