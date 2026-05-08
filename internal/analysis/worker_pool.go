@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,6 +79,7 @@ func (wp *WorkerPool) processTask(task *AnalysisTask) {
 
 	attrs, err := wp.extractor.ExtractFromData(string(task.SignalType), task.Data)
 	if err != nil {
+		slog.Warn("extractor failed", "signal_type", task.SignalType, "error", err)
 		return
 	}
 
@@ -105,8 +107,5 @@ func (wp *WorkerPool) processTask(task *AnalysisTask) {
 
 	if wp.m != nil {
 		wp.m.PipelineProcessingTime.WithLabelValues("analysis").Observe(time.Since(start).Seconds())
-		if wp.m.PipelineRingBufferSize != nil {
-			wp.m.PipelineRingBufferSize.Set(float64(wp.processed.Load()))
-		}
 	}
 }

@@ -340,6 +340,8 @@ func startMetricsUpdater(ctx context.Context, dict *dictionary.Dictionary, track
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	var prevDropped int64
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -348,13 +350,17 @@ func startMetricsUpdater(ctx context.Context, dict *dictionary.Dictionary, track
 			m.DictionaryEntries.Set(float64(dict.Count()))
 			m.PipelineRingBufferSize.Set(float64(rb.Len()))
 			m.PipelineLag.Set(float64(rb.Count()))
-			m.PipelineDrops.Add(float64(rb.Dropped()))
 
-			used, limit, pct := tracker.GlobalUtilization()
+			curDropped := rb.Dropped()
+			if delta := curDropped - prevDropped; delta > 0 {
+				m.PipelineDrops.Add(float64(delta))
+			}
+			prevDropped = curDropped
+
+			used, _, pct := tracker.GlobalUtilization()
 			m.CardinalityBudgetUtil.Set(pct)
 			m.CardinalityHighAttrs.Set(float64(len(tracker.HighCardinality(int64(cfg.PerAttrCap)))))
-			_ = used
-			_ = limit
+			slog.Debug("cardinality budget", "used", used, "utilization_pct", pct)
 		}
 	}
 }

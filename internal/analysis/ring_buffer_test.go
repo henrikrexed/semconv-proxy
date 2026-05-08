@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -238,6 +239,49 @@ func BenchmarkExtractorLogs(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestWorkerPoolCardinalityTracker(t *testing.T) {
+	dict, _ := dictionary.New(&dictionary.Config{ShardCount: 4, GlobalBudget: 1000, PerAttrCap: 100}, nil)
+	tracker := cardinality.NewTracker(1000, 100, nil)
+	ch := make(chan *AnalysisTask, 100)
+	ext := NewExtractor()
+	wp := NewWorkerPoolWithMetrics(2, ch, dict, tracker, nil, ext)
+
+	ctx := context.Background()
+	wp.Start(ctx)
+
+	data := buildTestMetricData(t, "http.requests", map[string]string{
+		"http.method": "GET",
+		"status.code": "200",
+	})
+
+	for i := 0; i < 5; i++ {
+		ch <- &AnalysisTask{
+			SignalType: SignalMetric,
+			Timestamp:  time.Now(),
+			Data:       data,
+		}
+	}
+	close(ch)
+
+	time.Sleep(200 * time.Millisecond)
+	wp.Stop()
+
+	card := tracker.Cardinality("http.method")
+	if card == 0 {
+		t.Error("expected cardinality tracker to have data for http.method, got 0")
+	}
+
+	card = tracker.Cardinality("status.code")
+	if card == 0 {
+		t.Error("expected cardinality tracker to have data for status.code, got 0")
+	}
+
+	used, _, _ := tracker.GlobalUtilization()
+	if used == 0 {
+		t.Error("expected tracker to report used > 0")
 	}
 }
 
