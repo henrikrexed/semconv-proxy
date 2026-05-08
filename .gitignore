@@ -30,6 +30,11 @@ Thumbs.db
 # Build
 /dist/
 /build/
+/site/
+
+# Security scan results
+*.sarif
+sbom-*.spdx.json
 
 # Pebble data
 *.sst

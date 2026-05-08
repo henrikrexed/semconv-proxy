@@ -1,10 +1,12 @@
-FROM golang:1.23 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
+
+ARG TARGETOS TARGETARCH
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /semconv-proxy ./cmd/semconv-proxy
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o /semconv-proxy ./cmd/semconv-proxy
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /semconv-proxy /semconv-proxy

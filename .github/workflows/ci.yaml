@@ -6,20 +6,49 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+      - name: Verify gofmt
+        run: |
+          output=$(gofmt -l .)
+          if [ -n "$output" ]; then
+            echo "Files not formatted:"
+            echo "$output"
+            exit 1
+          fi
+      - name: Verify goimports
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          output=$(goimports -l .)
+          if [ -n "$output" ]; then
+            echo "Files with incorrect imports:"
+            echo "$output"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          args: --timeout=5m
 
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +57,11 @@ jobs:
           go-version: '1.23'
       - name: Run tests
         run: go test -race -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: Check coverage
+        run: |
+          go tool cover -func=coverage.txt
+          COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -35,15 +69,81 @@ jobs:
           path: coverage.txt
 
   build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux]
-        goarch: [amd64, arm64]
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
       - name: Build
-        run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o semconv-proxy-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/semconv-proxy
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          go build -ldflags="-s -w" -o semconv-proxy-${GOOS}-${GOARCH}${EXT} ./cmd/semconv-proxy
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: semconv-proxy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: semconv-proxy-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - name: Run Gosec
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+      - name: Upload Gosec results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gosec-results
+          path: gosec-results.sarif
+
+  trivy-fs:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-fs-results
+          path: trivy-fs-results.sarif
