@@ -10,6 +10,7 @@ permissions:
   packages: write
   id-token: write
   attestations: write
+  security-events: write
 
 jobs:
   release:
@@ -102,12 +103,19 @@ jobs:
           name: sbom-docker
           path: sbom-docker.spdx.json
 
-      - name: Upload Trivy image scan results
+      - name: Upload Trivy image scan artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: trivy-image-results
           path: trivy-image-results.sarif
+
+      - name: Upload Trivy image scan to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-docker
 
   sbom-source:
     name: Source SBOM
