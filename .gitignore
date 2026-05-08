@@ -42,3 +42,7 @@ WAL-*
 # Config
 *.local.yaml
 *.local.yml
+
+# Planning artifacts
+_bmad/
+_bmad-output/

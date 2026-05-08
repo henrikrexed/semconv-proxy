@@ -1,9 +1,8 @@
 package storage
 
 import (
-	"encoding/json"
-
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type StorageKey struct {
@@ -25,12 +24,12 @@ func ParseKey(s string) (signalType, attrName string) {
 }
 
 func EntryToBytes(entry *dictionary.AttributeEntry) ([]byte, error) {
-	return json.Marshal(entry)
+	return msgpack.Marshal(entry)
 }
 
 func BytesToEntry(data []byte) (*dictionary.AttributeEntry, error) {
 	entry := &dictionary.AttributeEntry{}
-	if err := json.Unmarshal(data, entry); err != nil {
+	if err := msgpack.Unmarshal(data, entry); err != nil {
 		return nil, err
 	}
 	return entry, nil

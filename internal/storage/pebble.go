@@ -116,7 +116,11 @@ func (p *Persister) writeBatch(entries []*dictionary.AttributeEntry) {
 	}
 	batch := p.db.NewBatch()
 	for _, entry := range entries {
-		key := StorageKey{SignalType: string(entry.SignalTypes[0]), AttributeName: entry.Name}
+		signalType := "unknown"
+		if len(entry.SignalTypes) > 0 {
+			signalType = string(entry.SignalTypes[0])
+		}
+		key := StorageKey{SignalType: signalType, AttributeName: entry.Name}
 		data, err := EntryToBytes(entry)
 		if err != nil {
 			p.logger.Error("failed to marshal entry", "error", err)

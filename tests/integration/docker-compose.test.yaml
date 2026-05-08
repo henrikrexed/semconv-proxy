@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  proxy:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8080:8080"
+    command:
+      - --backend-endpoint=mock-backend:4318
+      - --backend-insecure=true
+      - --log-level=debug
+      - --otlp-http-port=4318
+      - --otlp-grpc-port=4317
+      - --api-port=8080
+    depends_on:
+      mock-backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  mock-backend:
+    image: golang:1.23
+    ports:
+      - "14418:4318"
+    volumes:
+      - ./mock-backend:/app
+    working_dir: /app
+    command: go run main.go
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/healthz"]
+      interval: 1s
+      timeout: 3s
+      retries: 15

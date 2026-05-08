@@ -1,18 +1,19 @@
 package exporter
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
+	"net/http"
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/collector/pdata/plog"
+	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
-	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
-	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
@@ -20,6 +21,8 @@ type Forwarder struct {
 	endpoint string
 	insecure bool
 	logger   *slog.Logger
+	client   *http.Client
+	m        *metrics.Metrics
 
 	metricsSent atomic.Int64
 	tracesSent  atomic.Int64
@@ -30,38 +33,120 @@ type Forwarder struct {
 }
 
 func New(endpoint string, insecure bool, logger *slog.Logger) *Forwarder {
+	return NewWithMetrics(endpoint, insecure, logger, nil)
+}
+
+func NewWithMetrics(endpoint string, insecure bool, logger *slog.Logger, m *metrics.Metrics) *Forwarder {
+	scheme := "https"
+	if insecure {
+		scheme = "http"
+	}
+	baseURL := fmt.Sprintf("%s://%s", scheme, endpoint)
+
 	return &Forwarder{
-		endpoint: endpoint,
+		endpoint: baseURL,
 		insecure: insecure,
 		logger:   logger,
+		m:        m,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 }
 
-func (f *Forwarder) ForwardMetrics(ctx context.Context, metrics pmetric.Metrics) error {
+func (f *Forwarder) ForwardMetrics(ctx context.Context, protoBytes []byte) error {
 	return f.withRetry(ctx, "metrics", 3, func() error {
-		exportReq := pmetricotlp.NewExportRequestFromMetrics(metrics)
-		_ = exportReq
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.endpoint+"/v1/metrics", bytes.NewReader(protoBytes))
+		if err != nil {
+			return fmt.Errorf("forwarder: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-protobuf")
+
+		resp, err := f.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("forwarder: send metrics: %w", err)
+		}
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("forwarder: metrics backend returned status %d", resp.StatusCode)
+		}
 		f.metricsSent.Add(1)
+		if f.m != nil {
+			f.m.SignalsForwarded.WithLabelValues("metric", "http").Inc()
+		}
 		return nil
 	})
 }
 
-func (f *Forwarder) ForwardTraces(ctx context.Context, traces ptrace.Traces) error {
+func (f *Forwarder) ForwardTraces(ctx context.Context, protoBytes []byte) error {
 	return f.withRetry(ctx, "traces", 3, func() error {
-		exportReq := ptraceotlp.NewExportRequestFromTraces(traces)
-		_ = exportReq
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.endpoint+"/v1/traces", bytes.NewReader(protoBytes))
+		if err != nil {
+			return fmt.Errorf("forwarder: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-protobuf")
+
+		resp, err := f.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("forwarder: send traces: %w", err)
+		}
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("forwarder: traces backend returned status %d", resp.StatusCode)
+		}
 		f.tracesSent.Add(1)
+		if f.m != nil {
+			f.m.SignalsForwarded.WithLabelValues("trace", "http").Inc()
+		}
 		return nil
 	})
 }
 
-func (f *Forwarder) ForwardLogs(ctx context.Context, logs plog.Logs) error {
+func (f *Forwarder) ForwardLogs(ctx context.Context, protoBytes []byte) error {
 	return f.withRetry(ctx, "logs", 3, func() error {
-		exportReq := plogotlp.NewExportRequestFromLogs(logs)
-		_ = exportReq
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.endpoint+"/v1/logs", bytes.NewReader(protoBytes))
+		if err != nil {
+			return fmt.Errorf("forwarder: create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/x-protobuf")
+
+		resp, err := f.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("forwarder: send logs: %w", err)
+		}
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("forwarder: logs backend returned status %d", resp.StatusCode)
+		}
 		f.logsSent.Add(1)
+		if f.m != nil {
+			f.m.SignalsForwarded.WithLabelValues("log", "http").Inc()
+		}
 		return nil
 	})
+}
+
+func (f *Forwarder) ForwardMetricsFromData(ctx context.Context, data []byte) error {
+	return f.ForwardMetrics(ctx, data)
+}
+
+func (f *Forwarder) ForwardTracesFromData(ctx context.Context, data []byte) error {
+	return f.ForwardTraces(ctx, data)
+}
+
+func (f *Forwarder) ForwardLogsFromData(ctx context.Context, data []byte) error {
+	return f.ForwardLogs(ctx, data)
 }
 
 func (f *Forwarder) withRetry(ctx context.Context, signalType string, maxRetries int, fn func() error) error {
@@ -96,10 +181,19 @@ func (f *Forwarder) withRetry(ctx context.Context, signalType string, maxRetries
 	switch signalType {
 	case "metrics":
 		f.metricsErr.Add(1)
+		if f.m != nil {
+			f.m.SignalsDropped.WithLabelValues("metric", "http").Inc()
+		}
 	case "traces":
 		f.tracesErr.Add(1)
+		if f.m != nil {
+			f.m.SignalsDropped.WithLabelValues("trace", "http").Inc()
+		}
 	case "logs":
 		f.logsErr.Add(1)
+		if f.m != nil {
+			f.m.SignalsDropped.WithLabelValues("log", "http").Inc()
+		}
 	}
 	return fmt.Errorf("exporter: %s: failed after %d retries: %w", signalType, maxRetries, lastErr)
 }
@@ -107,4 +201,28 @@ func (f *Forwarder) withRetry(ctx context.Context, signalType string, maxRetries
 func (f *Forwarder) Stats() (metricsSent, tracesSent, logsSent, metricsErr, tracesErr, logsErr int64) {
 	return f.metricsSent.Load(), f.tracesSent.Load(), f.logsSent.Load(),
 		f.metricsErr.Load(), f.tracesErr.Load(), f.logsErr.Load()
+}
+
+func MarshalMetricsExportRequest(protoBytes []byte) ([]byte, error) {
+	req := pmetricotlp.NewExportRequest()
+	if err := req.UnmarshalProto(protoBytes); err != nil {
+		return nil, err
+	}
+	return req.MarshalProto()
+}
+
+func MarshalTracesExportRequest(protoBytes []byte) ([]byte, error) {
+	req := ptraceotlp.NewExportRequest()
+	if err := req.UnmarshalProto(protoBytes); err != nil {
+		return nil, err
+	}
+	return req.MarshalProto()
+}
+
+func MarshalLogsExportRequest(protoBytes []byte) ([]byte, error) {
+	req := plogotlp.NewExportRequest()
+	if err := req.UnmarshalProto(protoBytes); err != nil {
+		return nil, err
+	}
+	return req.MarshalProto()
 }

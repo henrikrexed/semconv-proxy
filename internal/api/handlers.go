@@ -38,11 +38,11 @@ func (s *Server) handleDictionary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	all := s.dict.List(nil)
+	total := int(s.dict.Count())
 	filtered := s.dict.List(filter)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"total":   len(all),
+		"total":   total,
 		"offset":  filter.Offset,
 		"limit":   filter.Limit,
 		"entries": filtered,
@@ -144,9 +144,27 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if !s.ready {
+	if !s.ready || (s.healthAgg != nil && !s.healthAgg.IsReady()) {
+		status := "loading"
+		if s.healthAgg != nil {
+			components := s.healthAgg.GetAll()
+			type compStatus struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			}
+			var comps []compStatus
+			for _, c := range components {
+				comps = append(comps, compStatus{Name: c.Name, Status: c.Status.String()})
+			}
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+				"status":             status,
+				"dictionary_entries": s.dict.Count(),
+				"components":         comps,
+			})
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-			"status":             "loading",
+			"status":             status,
 			"dictionary_entries": s.dict.Count(),
 		})
 		return

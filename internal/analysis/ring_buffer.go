@@ -1,12 +1,9 @@
 package analysis
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 )
 
 type SignalType string
@@ -35,6 +32,9 @@ type RingBuffer struct {
 	mu       sync.Mutex
 	buf      []*AnalysisTask
 	capacity int
+	head     int
+	tail     int
+	full     bool
 	count    atomic.Int64
 	dropped  atomic.Int64
 	writeCh  chan *AnalysisTask
@@ -44,23 +44,32 @@ func NewRingBuffer(capacity int) *RingBuffer {
 	rb := &RingBuffer{
 		buf:      make([]*AnalysisTask, capacity),
 		capacity: capacity,
+		head:     0,
+		tail:     0,
+		full:     false,
 		writeCh:  make(chan *AnalysisTask, capacity),
 	}
 	return rb
 }
 
 func (rb *RingBuffer) Write(task *AnalysisTask) {
+	rb.mu.Lock()
+	if rb.full {
+		rb.dropped.Add(1)
+		rb.head = (rb.head + 1) % rb.capacity
+	}
+	rb.buf[rb.tail] = task
+	rb.tail = (rb.tail + 1) % rb.capacity
+	if rb.tail == rb.head {
+		rb.full = true
+	}
+	rb.mu.Unlock()
+
 	rb.count.Add(1)
+
 	select {
 	case rb.writeCh <- task:
 	default:
-		rb.dropped.Add(1)
-		rb.mu.Lock()
-		select {
-		case rb.writeCh <- task:
-		default:
-		}
-		rb.mu.Unlock()
 	}
 }
 
@@ -77,73 +86,13 @@ func (rb *RingBuffer) Dropped() int64 {
 }
 
 func (rb *RingBuffer) Len() int {
-	return len(rb.writeCh)
-}
-
-type WorkerPool struct {
-	workers   int
-	tasks     <-chan *AnalysisTask
-	dict      *dictionary.Dictionary
-	wg        sync.WaitGroup
-	cancel    context.CancelFunc
-	processed atomic.Int64
-}
-
-func NewWorkerPool(workers int, tasks <-chan *AnalysisTask, dict *dictionary.Dictionary) *WorkerPool {
-	return &WorkerPool{
-		workers: workers,
-		tasks:   tasks,
-		dict:    dict,
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	if rb.full {
+		return rb.capacity
 	}
-}
-
-func (wp *WorkerPool) Start(ctx context.Context) {
-	ctx, wp.cancel = context.WithCancel(ctx)
-	for i := 0; i < wp.workers; i++ {
-		wp.wg.Add(1)
-		go wp.work(ctx, i)
+	if rb.tail >= rb.head {
+		return rb.tail - rb.head
 	}
-}
-
-func (wp *WorkerPool) Stop() {
-	if wp.cancel != nil {
-		wp.cancel()
-	}
-	wp.wg.Wait()
-}
-
-func (wp *WorkerPool) Processed() int64 {
-	return wp.processed.Load()
-}
-
-func (wp *WorkerPool) work(ctx context.Context, id int) {
-	defer wp.wg.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case task, ok := <-wp.tasks:
-			if !ok {
-				return
-			}
-			wp.processTask(task)
-			wp.processed.Add(1)
-		}
-	}
-}
-
-func (wp *WorkerPool) processTask(task *AnalysisTask) {
-	now := time.Now()
-	for _, attr := range task.Attributes {
-		entry := &dictionary.AttributeEntry{
-			Name:        attr.Name,
-			Type:        attr.Type,
-			SignalTypes: []dictionary.SignalType{dictionary.SignalType(attr.SignalType)},
-			FirstSeen:   now,
-			LastSeen:    now,
-			Status:      dictionary.StatusActive,
-			Cardinality: attr.Cardinality,
-		}
-		wp.dict.Upsert(entry)
-	}
+	return rb.capacity - rb.head + rb.tail
 }

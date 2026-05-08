@@ -11,6 +11,7 @@ import (
 
 	"github.com/henrikrexed/semconv-proxy/internal/analysis"
 	"github.com/henrikrexed/semconv-proxy/internal/exporter"
+	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
@@ -23,15 +24,21 @@ type OTLPReceiver struct {
 	forwarder  *exporter.Forwarder
 	buffer     *analysis.RingBuffer
 	logger     *slog.Logger
+	m          *metrics.Metrics
 	httpPort   int
 	grpcPort   int
 }
 
 func New(httpPort, grpcPort int, fwd *exporter.Forwarder, buf *analysis.RingBuffer, logger *slog.Logger) *OTLPReceiver {
+	return NewWithMetrics(httpPort, grpcPort, fwd, buf, logger, nil)
+}
+
+func NewWithMetrics(httpPort, grpcPort int, fwd *exporter.Forwarder, buf *analysis.RingBuffer, logger *slog.Logger, m *metrics.Metrics) *OTLPReceiver {
 	return &OTLPReceiver{
 		forwarder: fwd,
 		buffer:    buf,
 		logger:    logger,
+		m:         m,
 		httpPort:  httpPort,
 		grpcPort:  grpcPort,
 	}
@@ -99,12 +106,13 @@ func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	if r.m != nil {
+		r.m.SignalsReceived.WithLabelValues("metric", "http").Inc()
+	}
+
 	if r.forwarder != nil {
-		metrics := pmetricotlp.NewExportRequest()
-		if parseErr := metrics.UnmarshalProto(body); parseErr == nil {
-			if fwdErr := r.forwarder.ForwardMetrics(req.Context(), metrics.Metrics()); fwdErr != nil {
-				r.logger.Error("failed to forward metrics", "error", fwdErr)
-			}
+		if fwdErr := r.forwarder.ForwardMetrics(req.Context(), body); fwdErr != nil {
+			r.logger.Error("failed to forward metrics", "error", fwdErr)
 		}
 	}
 
@@ -123,12 +131,13 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 		return
 	}
 
+	if r.m != nil {
+		r.m.SignalsReceived.WithLabelValues("trace", "http").Inc()
+	}
+
 	if r.forwarder != nil {
-		exportReq := ptraceotlp.NewExportRequest()
-		if parseErr := exportReq.UnmarshalProto(body); parseErr == nil {
-			if fwdErr := r.forwarder.ForwardTraces(req.Context(), exportReq.Traces()); fwdErr != nil {
-				r.logger.Error("failed to forward traces", "error", fwdErr)
-			}
+		if fwdErr := r.forwarder.ForwardTraces(req.Context(), body); fwdErr != nil {
+			r.logger.Error("failed to forward traces", "error", fwdErr)
 		}
 	}
 
@@ -147,12 +156,13 @@ func (r *OTLPReceiver) handleHTTPLogs(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	if r.m != nil {
+		r.m.SignalsReceived.WithLabelValues("log", "http").Inc()
+	}
+
 	if r.forwarder != nil {
-		exportReq := plogotlp.NewExportRequest()
-		if parseErr := exportReq.UnmarshalProto(body); parseErr == nil {
-			if fwdErr := r.forwarder.ForwardLogs(req.Context(), exportReq.Logs()); fwdErr != nil {
-				r.logger.Error("failed to forward logs", "error", fwdErr)
-			}
+		if fwdErr := r.forwarder.ForwardLogs(req.Context(), body); fwdErr != nil {
+			r.logger.Error("failed to forward logs", "error", fwdErr)
 		}
 	}
 
@@ -180,10 +190,17 @@ type metricGRPCServer struct {
 }
 
 func (s *metricGRPCServer) Export(ctx context.Context, req pmetricotlp.ExportRequest) (pmetricotlp.ExportResponse, error) {
-	if s.r.forwarder != nil {
-		if err := s.r.forwarder.ForwardMetrics(ctx, req.Metrics()); err != nil {
-			s.r.logger.Error("gRPC: failed to forward metrics", "error", err)
+	protoBytes, err := req.MarshalProto()
+	if err == nil {
+		if s.r.m != nil {
+			s.r.m.SignalsReceived.WithLabelValues("metric", "grpc").Inc()
 		}
+		if s.r.forwarder != nil {
+			if fwdErr := s.r.forwarder.ForwardMetrics(ctx, protoBytes); fwdErr != nil {
+				s.r.logger.Error("gRPC: failed to forward metrics", "error", fwdErr)
+			}
+		}
+		s.r.enqueueAnalysis("metric", protoBytes)
 	}
 	return pmetricotlp.NewExportResponse(), nil
 }
@@ -194,10 +211,17 @@ type traceGRPCServer struct {
 }
 
 func (s *traceGRPCServer) Export(ctx context.Context, req ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
-	if s.r.forwarder != nil {
-		if err := s.r.forwarder.ForwardTraces(ctx, req.Traces()); err != nil {
-			s.r.logger.Error("gRPC: failed to forward traces", "error", err)
+	protoBytes, err := req.MarshalProto()
+	if err == nil {
+		if s.r.m != nil {
+			s.r.m.SignalsReceived.WithLabelValues("trace", "grpc").Inc()
 		}
+		if s.r.forwarder != nil {
+			if fwdErr := s.r.forwarder.ForwardTraces(ctx, protoBytes); fwdErr != nil {
+				s.r.logger.Error("gRPC: failed to forward traces", "error", fwdErr)
+			}
+		}
+		s.r.enqueueAnalysis("trace", protoBytes)
 	}
 	return ptraceotlp.NewExportResponse(), nil
 }
@@ -208,10 +232,17 @@ type logGRPCServer struct {
 }
 
 func (s *logGRPCServer) Export(ctx context.Context, req plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
-	if s.r.forwarder != nil {
-		if err := s.r.forwarder.ForwardLogs(ctx, req.Logs()); err != nil {
-			s.r.logger.Error("gRPC: failed to forward logs", "error", err)
+	protoBytes, err := req.MarshalProto()
+	if err == nil {
+		if s.r.m != nil {
+			s.r.m.SignalsReceived.WithLabelValues("log", "grpc").Inc()
 		}
+		if s.r.forwarder != nil {
+			if fwdErr := s.r.forwarder.ForwardLogs(ctx, protoBytes); fwdErr != nil {
+				s.r.logger.Error("gRPC: failed to forward logs", "error", fwdErr)
+			}
+		}
+		s.r.enqueueAnalysis("log", protoBytes)
 	}
 	return plogotlp.NewExportResponse(), nil
 }

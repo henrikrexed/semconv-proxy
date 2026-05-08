@@ -55,10 +55,18 @@ func (d *Dictionary) shardIndex(key string) uint32 {
 
 func (d *Dictionary) Upsert(entry *AttributeEntry) ChangeType {
 	idx := d.shardIndex(entry.Name)
-	change := d.shards[idx].upsert(entry)
-	if change == ChangeAdded {
+	s := d.shards[idx]
+
+	existing, exists := s.get(entry.Name)
+	if !exists && d.config.GlobalBudget > 0 && int(d.totalCount.Load()) >= d.config.GlobalBudget {
+		return ChangeNone
+	}
+
+	change := s.upsert(entry)
+	if change == ChangeAdded && !exists {
 		d.totalCount.Add(1)
 	}
+	_ = existing
 	return change
 }
 

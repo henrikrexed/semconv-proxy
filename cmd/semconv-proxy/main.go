@@ -37,11 +37,11 @@ func main() {
 	cfg = config.Default()
 
 	cmd.Flags().StringVar(&cfg.ConfigFile, "config", "", "path to YAML config file")
-	cmd.Flags().StringVar(&cfg.BackendEndpoint, "backend-endpoint", cfg.BackendEndpoint, "OTLP backend endpoint (host:port)")
+	cmd.Flags().StringVarP(&cfg.BackendEndpoint, "backend-endpoint", "", cfg.BackendEndpoint, "OTLP backend endpoint (host:port)")
 	cmd.Flags().IntVar(&cfg.OTLPHTTPPort, "otlp-http-port", cfg.OTLPHTTPPort, "OTLP/HTTP listen port")
 	cmd.Flags().IntVar(&cfg.OTLPGRPCPort, "otlp-grpc-port", cfg.OTLPGRPCPort, "OTLP/gRPC listen port")
 	cmd.Flags().IntVar(&cfg.APIPort, "api-port", cfg.APIPort, "REST API listen port")
-	cmd.Flags().StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level (debug/info/warn/error)")
+	cmd.Flags().StringVarP(&cfg.LogLevel, "log-level", "l", cfg.LogLevel, "log level (debug/info/warn/error)")
 	cmd.Flags().StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "data directory for Pebble storage")
 	cmd.Flags().IntVar(&cfg.RingBufferSize, "ring-buffer-size", cfg.RingBufferSize, "ring buffer capacity")
 	cmd.Flags().IntVar(&cfg.WorkerCount, "worker-count", cfg.WorkerCount, "analysis worker count")
@@ -117,7 +117,7 @@ func run(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	registry := prometheus.NewRegistry()
-	_ = metrics.New(registry)
+	m := metrics.New(registry)
 
 	healthAgg := health.NewAggregator(logger)
 	healthAgg.Register("dictionary")
@@ -158,15 +158,16 @@ func run(cmd *cobra.Command, args []string) error {
 		slog.Info("loaded dictionary from storage", "entries", len(entries))
 	}
 	healthAgg.Update("dictionary", health.StatusOK)
+	healthAgg.Update("storage", health.StatusOK)
 
 	ringBuf := analysis.NewRingBuffer(cfg.RingBufferSize)
-	workerPool := analysis.NewWorkerPool(cfg.WorkerCount, ringBuf.Channel(), dict)
+	workerPool := analysis.NewWorkerPoolWithMetrics(cfg.WorkerCount, ringBuf.Channel(), dict, m)
 	workerPool.Start(ctx)
 
-	fwd := exporter.New(cfg.BackendEndpoint, cfg.BackendInsecure, logger)
-	recv := receiver.New(cfg.OTLPHTTPPort, cfg.OTLPGRPCPort, fwd, ringBuf, logger)
+	fwd := exporter.NewWithMetrics(cfg.BackendEndpoint, cfg.BackendInsecure, logger, m)
+	recv := receiver.NewWithMetrics(cfg.OTLPHTTPPort, cfg.OTLPGRPCPort, fwd, ringBuf, logger, m)
 
-	apiServer := api.NewServer(cfg.APIPort, dict, tracker, weaverExporter, logger)
+	apiServer := api.NewServer(cfg.APIPort, dict, tracker, weaverExporter, logger, healthAgg, registry)
 
 	coordinator := lifecycle.NewCoordinator(logger, cfg.ShutdownTimeout)
 
@@ -228,17 +229,38 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	m.DictionaryEntries.Set(float64(dict.Count()))
+
 	slog.Info("semconv-proxy started successfully")
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	select {
-	case <-ctx.Done():
-	case sig := <-sigCh:
-		slog.Info("received signal, shutting down", "signal", sig)
+	for {
+		select {
+		case <-ctx.Done():
+			goto shutdown
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				slog.Info("received SIGHUP, reloading config")
+				if cfg.ConfigFile != "" {
+					viper.SetConfigFile(cfg.ConfigFile)
+					if err := viper.ReadInConfig(); err != nil {
+						slog.Error("failed to reload config", "error", err)
+					} else {
+						if lvl := viper.GetString("log-level"); lvl != "" {
+							slog.Info("reloaded config", "log_level", lvl)
+						}
+					}
+				}
+				continue
+			}
+			slog.Info("received signal, shutting down", "signal", sig)
+			goto shutdown
+		}
 	}
 
+shutdown:
 	cancel()
 	coordinator.StopAll(context.Background())
 

@@ -11,6 +11,9 @@ import (
 	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/export"
+	"github.com/henrikrexed/semconv-proxy/internal/health"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
@@ -19,15 +22,17 @@ type Server struct {
 	tracker    *cardinality.Tracker
 	exporter   *export.WeaverExporter
 	logger     *slog.Logger
+	healthAgg  *health.Aggregator
 	ready      bool
 }
 
-func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Tracker, exporter *export.WeaverExporter, logger *slog.Logger) *Server {
+func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Tracker, exporter *export.WeaverExporter, logger *slog.Logger, healthAgg *health.Aggregator, registry *prometheus.Registry) *Server {
 	s := &Server{
-		dict:     dict,
-		tracker:  tracker,
-		exporter: exporter,
-		logger:   logger,
+		dict:      dict,
+		tracker:   tracker,
+		exporter:  exporter,
+		logger:    logger,
+		healthAgg: healthAgg,
 	}
 
 	mux := http.NewServeMux()
@@ -37,6 +42,7 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 	mux.HandleFunc("/api/v1/export", s.handleExport)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
+	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 
 	var handler http.Handler = mux
 	handler = loggingMiddleware(logger)(handler)
@@ -65,6 +71,7 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Stop(ctx context.Context) {
+	s.ready = false
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_ = s.httpServer.Shutdown(shutdownCtx)

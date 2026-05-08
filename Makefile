@@ -15,6 +15,9 @@ test:
 integration-test:
 	$(GO) test -race -tags=integration -count=1 ./tests/integration/...
 
+docker-integration-test:
+	$(GO) test -race -tags=docker -count=1 -timeout 300s ./tests/integration/...
+
 lint:
 	$(GOLANGCI_LINT) run ./...
 
