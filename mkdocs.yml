@@ -1,0 +1,100 @@
+site_name: SemConv Proxy
+site_description: OpenTelemetry Collector Semantic Convention Proxy Documentation
+site_author: Henrik Rexed
+site_url: https://henrikrexed.github.io/semconv-proxy
+
+repo_name: henrikrexed/semconv-proxy
+repo_url: https://github.com/henrikrexed/semconv-proxy
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.annotate
+    - content.code.copy
+
+plugins:
+  - search
+  - macros
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - codehilite
+  - footnotes
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
+      - Configuration: getting-started/configuration.md
+  - Architecture:
+      - architecture/index.md
+      - Overview: architecture/overview.md
+      - Data Flow: architecture/data-flow.md
+      - Components: architecture/components.md
+      - Telemetry Pipeline Integration: architecture/pipeline-integration.md
+  - Use Cases:
+      - use-cases/index.md
+      - Semantic Convention Discovery: use-cases/semantic-discovery.md
+      - Migration Tracking: use-cases/migration-tracking.md
+      - Observability Pipeline: use-cases/observability-pipeline.md
+      - Multi-Source Aggregation: use-cases/multi-source-aggregation.md
+  - API Reference:
+      - api/index.md
+      - Dictionary API: api/dictionary.md
+      - Health & Readiness: api/health.md
+      - Metrics: api/metrics.md
+      - Weaver Export: api/weaver-export.md
+  - Operations:
+      - operations/index.md
+      - Docker: operations/docker.md
+      - Kubernetes / Helm: operations/kubernetes.md
+      - Monitoring: operations/monitoring.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Development:
+      - development/index.md
+      - Contributing: development/contributing.md
+      - Testing: development/testing.md
