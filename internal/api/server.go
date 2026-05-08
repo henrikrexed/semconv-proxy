@@ -12,6 +12,7 @@ import (
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/export"
 	"github.com/henrikrexed/semconv-proxy/internal/health"
+	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -23,16 +24,18 @@ type Server struct {
 	exporter   *export.WeaverExporter
 	logger     *slog.Logger
 	healthAgg  *health.Aggregator
+	m          *metrics.Metrics
 	ready      bool
 }
 
-func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Tracker, exporter *export.WeaverExporter, logger *slog.Logger, healthAgg *health.Aggregator, registry *prometheus.Registry) *Server {
+func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Tracker, exporter *export.WeaverExporter, logger *slog.Logger, healthAgg *health.Aggregator, registry *prometheus.Registry, m *metrics.Metrics) *Server {
 	s := &Server{
 		dict:      dict,
 		tracker:   tracker,
 		exporter:  exporter,
 		logger:    logger,
 		healthAgg: healthAgg,
+		m:         m,
 	}
 
 	mux := http.NewServeMux()
@@ -46,6 +49,7 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 
 	var handler http.Handler = mux
 	handler = loggingMiddleware(logger)(handler)
+	handler = metricsMiddleware(s.m)(handler)
 	handler = recoveryMiddleware(logger)(handler)
 
 	s.httpServer = &http.Server{
@@ -53,6 +57,10 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 		Handler: handler,
 	}
 	return s
+}
+
+func (s *Server) SetMetrics(m *metrics.Metrics) {
+	s.m = m
 }
 
 func (s *Server) Start(ctx context.Context) error {

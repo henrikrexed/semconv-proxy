@@ -5,7 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
+
+	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 )
 
 func loggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
@@ -20,6 +23,20 @@ func loggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 				"status", sw.status,
 				"duration_ms", time.Since(start).Milliseconds(),
 			)
+		})
+	}
+}
+
+func metricsMiddleware(m *metrics.Metrics) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			sw := &statusWriter{ResponseWriter: w, status: 200}
+			next.ServeHTTP(sw, r)
+			if m != nil {
+				m.APIRequests.WithLabelValues(r.URL.Path, r.Method, strconv.Itoa(sw.status)).Inc()
+				m.APIRequestDuration.WithLabelValues(r.URL.Path).Observe(time.Since(start).Seconds())
+			}
 		})
 	}
 }

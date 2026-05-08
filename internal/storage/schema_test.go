@@ -93,6 +93,6 @@ func BenchmarkEntryToBytes(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		EntryToBytes(entry)
+		_, _ = EntryToBytes(entry)
 	}
 }

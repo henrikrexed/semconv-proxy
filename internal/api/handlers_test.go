@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/export"
 	"github.com/henrikrexed/semconv-proxy/internal/health"
 	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"log/slog"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -43,9 +44,9 @@ func newTestServer(t *testing.T) *Server {
 	healthAgg.Register("test")
 	healthAgg.Update("test", health.StatusOK)
 	registry := prometheus.NewRegistry()
-	_ = metrics.New(registry)
+	m := metrics.New(registry)
 
-	return NewServer(0, dict, tracker, weaverExporter, slog.Default(), healthAgg, registry)
+	return NewServer(0, dict, tracker, weaverExporter, slog.Default(), healthAgg, registry, m)
 }
 
 func TestHandleHealthz(t *testing.T) {
@@ -61,7 +62,9 @@ func TestHandleHealthz(t *testing.T) {
 	}
 
 	var body map[string]string
-	json.Unmarshal(w.Body.Bytes(), &body)
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
 	if body["status"] != "alive" {
 		t.Errorf("status = %q, want %q", body["status"], "alive")
 	}
@@ -106,7 +109,9 @@ func TestHandleDictionary(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &body)
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
 	if body["total"] == nil {
 		t.Error("expected total field")
 	}

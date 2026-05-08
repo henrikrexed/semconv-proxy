@@ -67,7 +67,9 @@ func TestCoordinatorStopReversesOrder(t *testing.T) {
 	c.Add(comp2)
 
 	ctx := context.Background()
-	c.StartAll(ctx)
+	if err := c.StartAll(ctx); err != nil {
+		t.Fatalf("StartAll error: %v", err)
+	}
 	c.StopAll(ctx)
 
 	if len(stopOrder) != 2 {

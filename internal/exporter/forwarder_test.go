@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"context"
+	"log/slog"
+
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
-	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
-	"context"
-	"log/slog"
 )
 
 func TestForwardMetricsToBackend(t *testing.T) {
@@ -28,7 +29,7 @@ func TestForwardMetricsToBackend(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		resp, _ := pmetricotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -52,7 +53,7 @@ func TestForwardTracesToBackend(t *testing.T) {
 		received = true
 		w.WriteHeader(http.StatusOK)
 		resp, _ := ptraceotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -76,7 +77,7 @@ func TestForwardLogsToBackend(t *testing.T) {
 		received = true
 		w.WriteHeader(http.StatusOK)
 		resp, _ := plogotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -104,7 +105,7 @@ func TestForwardRetryOnFailure(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		resp, _ := pmetricotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -126,7 +127,7 @@ func TestForwardStats(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		resp, _ := pmetricotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -135,7 +136,7 @@ func TestForwardStats(t *testing.T) {
 	metrics := pmetric.NewMetrics()
 	protoBytes, _ := pmetricotlp.NewExportRequestFromMetrics(metrics).MarshalProto()
 
-	fwd.ForwardMetrics(context.Background(), protoBytes)
+	_ = fwd.ForwardMetrics(context.Background(), protoBytes)
 
 	ms, ts2, ls, me, te, le := fwd.Stats()
 	if ms != 1 {

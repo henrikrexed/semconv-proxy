@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 )
@@ -14,6 +15,8 @@ type WorkerPool struct {
 	workers   int
 	tasks     <-chan *AnalysisTask
 	dict      *dictionary.Dictionary
+	tracker   *cardinality.Tracker
+	extractor *Extractor
 	m         *metrics.Metrics
 	wg        sync.WaitGroup
 	cancel    context.CancelFunc
@@ -21,15 +24,17 @@ type WorkerPool struct {
 }
 
 func NewWorkerPool(workers int, tasks <-chan *AnalysisTask, dict *dictionary.Dictionary) *WorkerPool {
-	return NewWorkerPoolWithMetrics(workers, tasks, dict, nil)
+	return NewWorkerPoolWithMetrics(workers, tasks, dict, nil, nil, nil)
 }
 
-func NewWorkerPoolWithMetrics(workers int, tasks <-chan *AnalysisTask, dict *dictionary.Dictionary, m *metrics.Metrics) *WorkerPool {
+func NewWorkerPoolWithMetrics(workers int, tasks <-chan *AnalysisTask, dict *dictionary.Dictionary, tracker *cardinality.Tracker, m *metrics.Metrics, extractor *Extractor) *WorkerPool {
 	return &WorkerPool{
-		workers: workers,
-		tasks:   tasks,
-		dict:    dict,
-		m:       m,
+		workers:   workers,
+		tasks:     tasks,
+		dict:      dict,
+		tracker:   tracker,
+		m:         m,
+		extractor: extractor,
 	}
 }
 
@@ -69,17 +74,17 @@ func (wp *WorkerPool) work(ctx context.Context, id int) {
 }
 
 func (wp *WorkerPool) processTask(task *AnalysisTask) {
-	now := time.Now()
-	for _, attr := range task.Attributes {
-		entry := &dictionary.AttributeEntry{
-			Name:        attr.Name,
-			Type:        attr.Type,
-			SignalTypes: []dictionary.SignalType{dictionary.SignalType(attr.SignalType)},
-			FirstSeen:   now,
-			LastSeen:    now,
-			Status:      dictionary.StatusActive,
-			Cardinality: attr.Cardinality,
-		}
+	start := time.Now()
+
+	attrs, err := wp.extractor.ExtractFromData(string(task.SignalType), task.Data)
+	if err != nil {
+		return
+	}
+
+	now := task.Timestamp
+	entries := ToDictionaryEntries(attrs, now)
+
+	for i, entry := range entries {
 		change := wp.dict.Upsert(entry)
 		if wp.m != nil {
 			switch change {
@@ -88,6 +93,20 @@ func (wp *WorkerPool) processTask(task *AnalysisTask) {
 			case dictionary.ChangeTypeModified:
 				wp.m.DictionaryAttributesChanged.Inc()
 			}
+		}
+
+		if wp.tracker != nil && i < len(attrs) {
+			attr := attrs[i]
+			if attr.Value != "" {
+				wp.tracker.TrackValue(attr.Name, attr.Value)
+			}
+		}
+	}
+
+	if wp.m != nil {
+		wp.m.PipelineProcessingTime.WithLabelValues("analysis").Observe(time.Since(start).Seconds())
+		if wp.m.PipelineRingBufferSize != nil {
+			wp.m.PipelineRingBufferSize.Set(float64(wp.processed.Load()))
 		}
 	}
 }

@@ -71,8 +71,8 @@ func (f *Forwarder) ForwardMetrics(ctx context.Context, protoBytes []byte) error
 		if err != nil {
 			return fmt.Errorf("forwarder: send metrics: %w", err)
 		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
 
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("forwarder: metrics backend returned status %d", resp.StatusCode)
@@ -97,8 +97,8 @@ func (f *Forwarder) ForwardTraces(ctx context.Context, protoBytes []byte) error 
 		if err != nil {
 			return fmt.Errorf("forwarder: send traces: %w", err)
 		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
 
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("forwarder: traces backend returned status %d", resp.StatusCode)
@@ -123,8 +123,8 @@ func (f *Forwarder) ForwardLogs(ctx context.Context, protoBytes []byte) error {
 		if err != nil {
 			return fmt.Errorf("forwarder: send logs: %w", err)
 		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
 
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("forwarder: logs backend returned status %d", resp.StatusCode)

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/henrikrexed/semconv-proxy/internal/analysis"
 	"github.com/henrikrexed/semconv-proxy/internal/exporter"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -16,7 +18,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
-	"log/slog"
 )
 
 func TestHTTPMetricsHandler(t *testing.T) {
@@ -25,7 +26,7 @@ func TestHTTPMetricsHandler(t *testing.T) {
 		forwarded.Add(1)
 		w.WriteHeader(http.StatusOK)
 		resp, _ := pmetricotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -67,7 +68,7 @@ func TestHTTPTracesHandler(t *testing.T) {
 		forwarded.Add(1)
 		w.WriteHeader(http.StatusOK)
 		resp, _ := ptraceotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 
@@ -100,7 +101,7 @@ func TestHTTPLogsHandler(t *testing.T) {
 		forwarded.Add(1)
 		w.WriteHeader(http.StatusOK)
 		resp, _ := plogotlp.NewExportResponse().MarshalProto()
-		w.Write(resp)
+		_, _ = w.Write(resp)
 	}))
 	defer ts.Close()
 

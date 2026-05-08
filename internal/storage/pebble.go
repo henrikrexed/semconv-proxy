@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
+	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 )
 
 type Persister struct {
@@ -19,6 +20,7 @@ type Persister struct {
 	wg        sync.WaitGroup
 	interval  time.Duration
 	batchSize int
+	m         *metrics.Metrics
 }
 
 func NewPersister(dataDir string, interval time.Duration, batchSize int, logger *slog.Logger) (*Persister, error) {
@@ -34,6 +36,10 @@ func NewPersister(dataDir string, interval time.Duration, batchSize int, logger 
 		interval:  interval,
 		batchSize: batchSize,
 	}, nil
+}
+
+func (p *Persister) SetMetrics(m *metrics.Metrics) {
+	p.m = m
 }
 
 func (p *Persister) Start(ctx context.Context) {
@@ -114,6 +120,7 @@ func (p *Persister) writeBatch(entries []*dictionary.AttributeEntry) {
 	if len(entries) == 0 {
 		return
 	}
+	start := time.Now()
 	batch := p.db.NewBatch()
 	for _, entry := range entries {
 		signalType := "unknown"
@@ -135,5 +142,13 @@ func (p *Persister) writeBatch(entries []*dictionary.AttributeEntry) {
 	}
 	if err := p.db.Flush(); err != nil {
 		p.logger.Error("failed to flush", "error", err)
+	}
+	if p.m != nil {
+		p.m.StoragePersistDuration.WithLabelValues("batch").Observe(time.Since(start).Seconds())
+		if p.m.StorageDiskSize != nil {
+			if size, err := p.db.EstimateDiskUsage(nil, nil); err == nil {
+				p.m.StorageDiskSize.Set(float64(size))
+			}
+		}
 	}
 }

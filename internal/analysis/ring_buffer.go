@@ -15,17 +15,9 @@ const (
 )
 
 type AnalysisTask struct {
-	SignalType SignalType      `json:"signal_type"`
-	Timestamp  time.Time       `json:"timestamp"`
-	Data       []byte          `json:"data"`
-	Attributes []ExtractedAttr `json:"attributes,omitempty"`
-}
-
-type ExtractedAttr struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	SignalType  string `json:"signal_type"`
-	Cardinality int64  `json:"cardinality"`
+	SignalType SignalType `json:"signal_type"`
+	Timestamp  time.Time  `json:"timestamp"`
+	Data       []byte     `json:"data"`
 }
 
 type RingBuffer struct {

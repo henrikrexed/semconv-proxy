@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/henrikrexed/semconv-proxy/internal/analysis"
 	"github.com/henrikrexed/semconv-proxy/internal/api"
 	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
@@ -25,23 +27,22 @@ import (
 	"github.com/henrikrexed/semconv-proxy/internal/receiver"
 	"github.com/henrikrexed/semconv-proxy/internal/storage"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
-	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
-	"log/slog"
 )
 
 type testEnv struct {
-	httpPort    int
-	grpcPort    int
-	apiPort     int
-	backendURL  string
-	fwd         *exporter.Forwarder
-	dict        *dictionary.Dictionary
-	cancel      context.CancelFunc
+	httpPort   int
+	grpcPort   int
+	apiPort    int
+	backendURL string
+	fwd        *exporter.Forwarder
+	dict       *dictionary.Dictionary
+	cancel     context.CancelFunc
 }
 
 func setupTestEnv(t *testing.T) *testEnv {
@@ -62,19 +63,19 @@ func setupTestEnv(t *testing.T) *testEnv {
 			switch r.URL.Path {
 			case "/v1/metrics":
 				resp, _ := pmetricotlp.NewExportResponse().MarshalProto()
-				w.Write(resp)
+				_, _ = w.Write(resp)
 			case "/v1/traces":
 				resp, _ := ptraceotlp.NewExportResponse().MarshalProto()
-				w.Write(resp)
+				_, _ = w.Write(resp)
 			case "/v1/logs":
 				resp, _ := plogotlp.NewExportResponse().MarshalProto()
-				w.Write(resp)
+				_, _ = w.Write(resp)
 			}
 		}),
 	}
 	ln, _ := new(net.ListenConfig).Listen(context.Background(), "tcp", backendServer.Addr)
-	go backendServer.Serve(ln)
-	t.Cleanup(func() { backendServer.Close() })
+	go func() { _ = backendServer.Serve(ln) }()
+	t.Cleanup(func() { _ = backendServer.Close() })
 
 	fwd := exporter.New(fmt.Sprintf("127.0.0.1:%d", 14418), true, logger)
 
@@ -88,7 +89,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	weaverExporter := export.NewWeaverExporter()
 	healthAgg := health.NewAggregator(logger)
 	registry := prometheus.NewRegistry()
-	_ = metrics.New(registry)
+	m := metrics.New(registry)
 
 	buf := analysis.NewRingBuffer(10000)
 	wp := analysis.NewWorkerPool(4, buf.Channel(), dict)
@@ -103,7 +104,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	healthAgg.Register("receiver")
 	healthAgg.Update("receiver", health.StatusOK)
 
-	apiServer := api.NewServer(apiPort, dict, tracker, weaverExporter, logger, healthAgg, registry)
+	apiServer := api.NewServer(apiPort, dict, tracker, weaverExporter, logger, healthAgg, registry, m)
 	if err := apiServer.Start(ctx); err != nil {
 		t.Fatalf("api start: %v", err)
 	}
@@ -111,7 +112,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() {
 		cancel()
 		wp.Stop()
-		recv.Stop(context.Background())
+		_ = recv.Stop(context.Background())
 		apiServer.Stop(context.Background())
 	})
 
@@ -177,7 +178,7 @@ func TestSignalForwardingHTTP(t *testing.T) {
 			if err != nil {
 				t.Fatalf("POST error: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != http.StatusOK {
 				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -359,14 +360,16 @@ func TestHealthEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET healthz error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("healthz status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 
 	var body map[string]string
-	json.NewDecoder(resp.Body).Decode(&body)
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode healthz response: %v", err)
+	}
 	if body["status"] != "alive" {
 		t.Errorf("healthz status = %q, want %q", body["status"], "alive")
 	}
@@ -380,7 +383,7 @@ func TestMetricsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /metrics error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/metrics status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -401,7 +404,7 @@ func TestReadyEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET readyz error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("readyz status = %d, want %d", resp.StatusCode, http.StatusOK)

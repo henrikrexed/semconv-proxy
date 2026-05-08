@@ -35,7 +35,7 @@ spec:
               service:
                 name: {{ include "semconv-proxy.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.apiPort | default 8080 }}
+                  number: {{ $.Values.service.ports.api }}
           {{- end }}
     {{- end }}
 {{- end }}

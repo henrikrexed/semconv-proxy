@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/henrikrexed/semconv-proxy/internal/analysis"
 	"github.com/henrikrexed/semconv-proxy/internal/api"
@@ -25,13 +26,20 @@ import (
 	"github.com/spf13/viper"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 var cfg *config.Config
 
 func main() {
 	cmd := &cobra.Command{
-		Use:   "semconv-proxy",
-		Short: "Collector Semantic Convention Proxy",
-		RunE:  run,
+		Use:     "semconv-proxy",
+		Short:   "Collector Semantic Convention Proxy",
+		RunE:    run,
+		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 	}
 
 	cfg = config.Default()
@@ -147,6 +155,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create persister: %w", err)
 	}
 	persister.Start(ctx)
+	persister.SetMetrics(m)
 
 	entries, err := persister.LoadAll()
 	if err != nil {
@@ -161,13 +170,14 @@ func run(cmd *cobra.Command, args []string) error {
 	healthAgg.Update("storage", health.StatusOK)
 
 	ringBuf := analysis.NewRingBuffer(cfg.RingBufferSize)
-	workerPool := analysis.NewWorkerPoolWithMetrics(cfg.WorkerCount, ringBuf.Channel(), dict, m)
+	extractor := analysis.NewExtractor()
+	workerPool := analysis.NewWorkerPoolWithMetrics(cfg.WorkerCount, ringBuf.Channel(), dict, tracker, m, extractor)
 	workerPool.Start(ctx)
 
 	fwd := exporter.NewWithMetrics(cfg.BackendEndpoint, cfg.BackendInsecure, logger, m)
 	recv := receiver.NewWithMetrics(cfg.OTLPHTTPPort, cfg.OTLPGRPCPort, fwd, ringBuf, logger, m)
 
-	apiServer := api.NewServer(cfg.APIPort, dict, tracker, weaverExporter, logger, healthAgg, registry)
+	apiServer := api.NewServer(cfg.APIPort, dict, tracker, weaverExporter, logger, healthAgg, registry, m)
 
 	coordinator := lifecycle.NewCoordinator(logger, cfg.ShutdownTimeout)
 
@@ -229,7 +239,8 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	m.DictionaryEntries.Set(float64(dict.Count()))
+	go startTTLSweeper(ctx, dict, cfg, m)
+	go startMetricsUpdater(ctx, dict, tracker, ringBuf, m)
 
 	slog.Info("semconv-proxy started successfully")
 
@@ -248,9 +259,7 @@ func run(cmd *cobra.Command, args []string) error {
 					if err := viper.ReadInConfig(); err != nil {
 						slog.Error("failed to reload config", "error", err)
 					} else {
-						if lvl := viper.GetString("log-level"); lvl != "" {
-							slog.Info("reloaded config", "log_level", lvl)
-						}
+						applyMutableConfig(logger)
 					}
 				}
 				continue
@@ -279,4 +288,73 @@ func (l lifecycleFunc) Start(ctx context.Context) error {
 
 func (l lifecycleFunc) Stop(ctx context.Context) error {
 	return l.stopFn(ctx)
+}
+
+func applyMutableConfig(logger *slog.Logger) {
+	if lvl := viper.GetString("log-level"); lvl != "" && lvl != cfg.LogLevel {
+		var level slog.Level
+		switch lvl {
+		case "debug":
+			level = slog.LevelDebug
+		case "info":
+			level = slog.LevelInfo
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		default:
+			return
+		}
+		cfg.LogLevel = lvl
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+		slog.Info("applied config reload", "log_level", lvl)
+	}
+}
+
+func startTTLSweeper(ctx context.Context, dict *dictionary.Dictionary, cfg *config.Config, m *metrics.Metrics) {
+	sweepInterval := cfg.TTLStale / 2
+	if sweepInterval < time.Minute {
+		sweepInterval = time.Minute
+	}
+	ticker := time.NewTicker(sweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			staleCount := dict.MarkStale(now, cfg.TTLStale)
+			purgedCount := dict.PurgeExpired(now, cfg.TTLPurge)
+			if staleCount > 0 || purgedCount > 0 {
+				slog.Info("ttl sweep completed", "stale", staleCount, "purged", purgedCount)
+				if m != nil {
+					m.DictionaryAttributesRemoved.Add(float64(purgedCount))
+				}
+			}
+		}
+	}
+}
+
+func startMetricsUpdater(ctx context.Context, dict *dictionary.Dictionary, tracker *cardinality.Tracker, rb *analysis.RingBuffer, m *metrics.Metrics) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.DictionaryEntries.Set(float64(dict.Count()))
+			m.PipelineRingBufferSize.Set(float64(rb.Len()))
+			m.PipelineLag.Set(float64(rb.Count()))
+			m.PipelineDrops.Add(float64(rb.Dropped()))
+
+			used, limit, pct := tracker.GlobalUtilization()
+			m.CardinalityBudgetUtil.Set(pct)
+			m.CardinalityHighAttrs.Set(float64(len(tracker.HighCardinality(int64(cfg.PerAttrCap)))))
+			_ = used
+			_ = limit
+		}
+	}
 }

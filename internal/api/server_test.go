@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/export"
 	"github.com/henrikrexed/semconv-proxy/internal/health"
 	"github.com/henrikrexed/semconv-proxy/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"log/slog"
 )
 
 func TestServerStartStop(t *testing.T) {
@@ -20,9 +21,9 @@ func TestServerStartStop(t *testing.T) {
 	weaverExporter := export.NewWeaverExporter()
 	healthAgg := health.NewAggregator(slog.Default())
 	registry := prometheus.NewRegistry()
-	_ = metrics.New(registry)
+	m := metrics.New(registry)
 
-	s := NewServer(0, dict, tracker, weaverExporter, slog.Default(), healthAgg, registry)
+	s := NewServer(0, dict, tracker, weaverExporter, slog.Default(), healthAgg, registry, m)
 
 	ctx := context.Background()
 	if err := s.Start(ctx); err != nil {

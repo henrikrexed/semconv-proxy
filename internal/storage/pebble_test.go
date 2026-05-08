@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"log/slog"
+
+	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 )
 
 func TestPersisterRoundtrip(t *testing.T) {
