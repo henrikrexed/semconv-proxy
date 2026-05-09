@@ -1,5 +1,9 @@
 # Migration Tracking
 
+## What This Use Case Achieves
+
+Migration Tracking gives you a diff-based view of what your application *actually* emits versus what you expect. Whether you're upgrading OTel semantic convention versions (e.g., `http.method` → `http.request.method`) or migrating from a proprietary agent to OpenTelemetry, SemConv Proxy captures before and after snapshots of your telemetry attributes so you can validate completeness and catch regressions.
+
 ## The Problem
 
 You're migrating from a legacy instrumentation setup to OpenTelemetry. Or you're upgrading OTel semantic convention versions (e.g., from v1.20 to v1.27). You need to answer:
@@ -9,17 +13,49 @@ You're migrating from a legacy instrumentation setup to OpenTelemetry. Or you're
 - Did the migration introduce new, unexpected attributes?
 - Are there naming mismatches between old and new conventions?
 
+## Migration and Audit Flow
+
+```mermaid
+sequenceDiagram
+    participant Eng as Engineer
+    participant Proxy as SemConv Proxy
+    participant App as Application
+    participant BE as Backend
+
+    Note over Eng,BE: Phase 1 — Baseline Capture
+    Eng->>Proxy: Deploy proxy, point at backend
+    App->>Proxy: Send pre-migration traffic
+    Proxy->>BE: Forward all signals
+    Proxy->>Proxy: Build baseline dictionary
+    Eng->>Proxy: GET /api/v1/export?format=weaver
+    Proxy-->>Eng: before-migration.yaml
+
+    Note over Eng,BE: Phase 2 — Apply Migration
+    Eng->>App: Deploy migration changes
+    App->>Proxy: Send post-migration traffic
+    Proxy->>BE: Forward all signals
+    Proxy->>Proxy: Update dictionary with new attrs
+
+    Note over Eng,BE: Phase 3 — Validate
+    Eng->>Proxy: GET /api/v1/export?format=weaver
+    Proxy-->>Eng: after-migration.yaml
+    Eng->>Eng: diff before-migration.yaml after-migration.yaml
+    Eng->>Proxy: GET /api/v1/dictionary?q=http.*
+    Proxy-->>Eng: Check for lingering old conventions
+    Note over Eng: Migration complete ✅<br/>if no old conventions found
+```
+
 ## The Solution
 
 Run SemConv Proxy alongside the application and compare what it discovers against your expected conventions.
 
-## Walkthrough
+## Step-by-Step Implementation Guide
 
 ### Scenario: OTel Convention Version Upgrade
 
 You're upgrading from HTTP conventions that used `http.method` to the newer `http.request.method`.
 
-### Step 1: Deploy the Proxy
+### Step 1: Deploy the Proxy Alongside the Application
 
 ```bash
 docker run -p 4317:4317 -p 4318:4318 -p 8080:8080 \
@@ -27,11 +63,11 @@ docker run -p 4317:4317 -p 4318:4318 -p 8080:8080 \
   --backend-endpoint=otel-collector:4317
 ```
 
-### Step 2: Run Traffic
+### Step 2: Generate Representative Traffic
 
 Send representative traffic through the application. Exercise key code paths.
 
-### Step 3: Check for Old Conventions
+### Step 3: Check for Lingering Old Conventions
 
 Search for attributes that should have been migrated:
 
@@ -42,7 +78,7 @@ curl "http://localhost:8080/api/v1/dictionary?q=http.*" | jq '.entries[] | selec
 
 If you find `http.method` instead of `http.request.method`, the migration is incomplete.
 
-### Step 4: Compare Emitted vs Expected
+### Step 4: Capture Before/After Snapshots and Compare
 
 Create a snapshot before the migration:
 
@@ -64,7 +100,7 @@ Compare the two exports:
 diff before-migration.yaml after-migration.yaml
 ```
 
-### Step 5: Identify Unexpected Attributes
+### Step 5: Identify Unexpected or Non-Standard Attributes
 
 ```bash
 # Find custom/non-standard attributes

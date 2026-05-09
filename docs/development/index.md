@@ -1,8 +1,8 @@
 # Development
 
-Contributing to Semconv Proxy.
+Contributing to SemConv Proxy development.
 
-## Sections
+## Topics
 
-- [Contributing](contributing.md) — How to contribute
-- [Testing](testing.md) — Running and writing tests
+- [Contributing](contributing.md) — how to contribute code
+- [Testing](testing.md) — testing strategy and how to run tests

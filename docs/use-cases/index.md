@@ -4,10 +4,12 @@ SemConv Proxy addresses real problems that platform, SRE, and development teams 
 
 ## Common Scenarios
 
-- [Semantic Convention Discovery](semantic-discovery.md) — Understand what conventions your services actually emit
-- [Migration Tracking](migration-tracking.md) — Track what an application emits vs. what you think it emits
-- [Observability Pipeline](observability-pipeline.md) — Cardinality management and budget monitoring
-- [Multi-Source Aggregation](multi-source-aggregation.md) — Platform team monitoring semantic convention drift
+| Use Case | Persona | What You Get |
+|----------|---------|-------------|
+| [Semantic Convention Discovery](semantic-discovery.md) | Application Developer | Live dictionary of emitted conventions → Weaver YAML → CI validation |
+| [Migration Tracking](migration-tracking.md) | Engineer / SRE | Before/after attribute snapshots to validate instrumentation migrations |
+| [Cardinality Management](observability-pipeline.md) | SRE / On-Call | Per-attribute cardinality tracking with Prometheus alerts and budget enforcement |
+| [Platform Team Fleet Monitoring](multi-source-aggregation.md) | Platform Engineer | Unified view of conventions across all teams with automated drift detection |
 
 ## Who Is This For?
 

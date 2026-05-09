@@ -1,69 +1,120 @@
 # Testing
 
-## Unit Tests
+## Running Tests
 
 ```bash
+# Unit tests
 make test
+
+# Or directly
+go test ./internal/...
+
+# With verbose output
+go test -v ./internal/...
+
+# Specific package
+go test -v ./internal/dictionary/...
+
+# With coverage
+go test -cover ./internal/...
+
+# Integration tests
+go test -tags=integration ./tests/integration/...
 ```
 
-Runs all unit tests with race detection and coverage.
+## Test Strategy
 
-## Integration Tests
+### Unit Tests
 
-```bash
-make integration-test
+Co-located with source code. Each package has its own test files:
+
+```
+internal/dictionary/
+├── dictionary.go
+├── dictionary_test.go
+├── shard.go
+├── shard_test.go
+└── entry.go
 ```
 
-Runs integration tests that require local tooling.
-
-## Docker Integration Tests
-
-```bash
-make docker-integration-test
-```
-
-Full end-to-end tests using Docker Compose with a mock backend.
-
-## Coverage
-
-```bash
-make coverage
-```
-
-Generates `coverage.txt` and `coverage.html`.
-
-## Writing Tests
-
-Follow table-driven test patterns:
+Tests follow the table-driven pattern:
 
 ```go
-func TestMyComponent(t *testing.T) {
+func TestDictionary_Upsert(t *testing.T) {
     tests := []struct {
         name    string
-        input   string
-        want    string
-        wantErr bool
+        entry   *AttributeEntry
+        wantNew bool
     }{
         {
-            name:  "valid input",
-            input: "test",
-            want:  "test",
+            name: "new attribute",
+            entry: &AttributeEntry{Name: "http.method", Type: "string"},
+            wantNew: true,
+        },
+        {
+            name: "existing attribute",
+            entry: &AttributeEntry{Name: "http.method", Type: "string"},
+            wantNew: false,
         },
     }
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            got, err := MyFunction(tt.input)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("MyFunction() error = %v, wantErr %v", err, tt.wantErr)
-            }
-            if got != tt.want {
-                t.Errorf("MyFunction() = %v, want %v", got, tt.want)
-            }
+            // test logic
         })
     }
 }
 ```
 
-## Coverage Target
+### Integration Tests
 
-Minimum 80% code coverage across all packages.
+Located in `tests/integration/` with the `//go:build integration` build tag.
+
+Key integration tests:
+
+| Test | Description |
+|------|-------------|
+| `proxy_test.go` | End-to-end proxy: send signals, verify forwarding and dictionary |
+| `dictionary_test.go` | Dictionary lifecycle: create, populate, query, persist, recover |
+| `export_test.go` | Weaver export: generate YAML and validate format |
+
+### Benchmarks
+
+Hot-path code includes benchmark tests:
+
+```bash
+# Ring buffer write performance
+go test -bench=BenchmarkRingBuffer -benchmem ./internal/analysis/
+
+# Dictionary read performance
+go test -bench=BenchmarkDictionary -benchmem ./internal/dictionary/
+
+# Cardinality tracking
+go test -bench=BenchmarkTracker -benchmem ./internal/cardinality/
+```
+
+Targets:
+
+| Benchmark | Target |
+|-----------|--------|
+| Ring buffer write | <100ns/op |
+| Dictionary read | <1μs/op |
+| Pebble batch write | <10ms for 1000 entries |
+
+## Test Utilities
+
+`internal/testutil/` provides shared helpers for constructing test fixtures:
+
+- OTLP signal builders (metrics, traces, logs)
+- Dictionary population helpers
+- Mock backend server for forwarding tests
+
+## CI Pipeline
+
+The GitHub Actions CI pipeline runs on every PR:
+
+1. `go vet` — static analysis
+2. `golangci-lint` — comprehensive linter
+3. `go test ./internal/...` — all unit tests
+4. `go build ./...` — build verification
+
+Configuration: `.github/workflows/ci.yaml`

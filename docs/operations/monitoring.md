@@ -54,7 +54,7 @@ groups:
           severity: critical
         annotations:
           summary: "SemConv Proxy is dropping signals"
-          description: "The proxy is dropping {{ $value }} signals/sec. Check backend connectivity."
+          description: "The proxy is dropping signals/sec. Check backend connectivity."
 
       - alert: SemConvProxyHighCardinality
         expr: semconv_proxy_cardinality_high_attributes > 10
@@ -63,7 +63,7 @@ groups:
           severity: warning
         annotations:
           summary: "High cardinality detected"
-          description: "{{ $value }} attributes exceed the cardinality threshold."
+          description: "Attributes exceed the cardinality threshold."
 
       - alert: SemConvProxyBudgetExhaustion
         expr: semconv_proxy_cardinality_budget_utilization > 80
@@ -72,7 +72,7 @@ groups:
           severity: warning
         annotations:
           summary: "Cardinality budget approaching limit"
-          description: "Budget utilization is {{ $value }}%."
+          description: "Budget utilization is above 80%."
 
       - alert: SemConvProxyPipelineDrops
         expr: rate(semconv_proxy_pipeline_drops_total[5m]) > 0
