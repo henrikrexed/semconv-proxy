@@ -15,6 +15,7 @@ import (
 type Persister struct {
 	db        *pebble.DB
 	batchCh   chan *dictionary.AttributeEntry
+	deleteCh  chan string
 	logger    *slog.Logger
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
@@ -32,6 +33,7 @@ func NewPersister(dataDir string, interval time.Duration, batchSize int, logger 
 	return &Persister{
 		db:        db,
 		batchCh:   make(chan *dictionary.AttributeEntry, batchSize*2),
+		deleteCh:  make(chan string, batchSize),
 		logger:    logger,
 		interval:  interval,
 		batchSize: batchSize,
@@ -67,6 +69,14 @@ func (p *Persister) Enqueue(entry *dictionary.AttributeEntry) {
 	}
 }
 
+func (p *Persister) DeleteByName(name string) {
+	select {
+	case p.deleteCh <- name:
+	default:
+		p.logger.Warn("delete channel full, skipping purge", "name", name)
+	}
+}
+
 func (p *Persister) LoadAll() ([]*dictionary.AttributeEntry, error) {
 	var entries []*dictionary.AttributeEntry
 	iter, err := p.db.NewIter(nil)
@@ -93,6 +103,7 @@ func (p *Persister) LoadAll() ([]*dictionary.AttributeEntry, error) {
 func (p *Persister) drainLoop(ctx context.Context) {
 	defer p.wg.Done()
 	batch := make([]*dictionary.AttributeEntry, 0, p.batchSize)
+	var deletes []string
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
@@ -100,6 +111,7 @@ func (p *Persister) drainLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			p.writeBatch(batch)
+			p.processDeletes(deletes)
 			return
 		case entry := <-p.batchCh:
 			batch = append(batch, entry)
@@ -107,12 +119,51 @@ func (p *Persister) drainLoop(ctx context.Context) {
 				p.writeBatch(batch)
 				batch = batch[:0]
 			}
+		case name := <-p.deleteCh:
+			deletes = append(deletes, name)
+			if len(deletes) >= p.batchSize {
+				p.processDeletes(deletes)
+				deletes = deletes[:0]
+			}
 		case <-ticker.C:
 			if len(batch) > 0 {
 				p.writeBatch(batch)
 				batch = batch[:0]
 			}
+			if len(deletes) > 0 {
+				p.processDeletes(deletes)
+				deletes = deletes[:0]
+			}
 		}
+	}
+}
+
+func (p *Persister) processDeletes(names []string) {
+	if len(names) == 0 {
+		return
+	}
+	iter, err := p.db.NewIter(nil)
+	if err != nil {
+		p.logger.Error("failed to create iterator for deletes", "error", err)
+		return
+	}
+	defer func() { _ = iter.Close() }()
+
+	nameSet := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		nameSet[n] = struct{}{}
+	}
+
+	batch := p.db.NewBatch()
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := string(iter.Key())
+		_, attrName := ParseKey(key)
+		if _, ok := nameSet[attrName]; ok {
+			_ = batch.Delete(iter.Key(), nil)
+		}
+	}
+	if err := batch.Commit(nil); err != nil {
+		p.logger.Error("failed to commit delete batch", "error", err)
 	}
 }
 

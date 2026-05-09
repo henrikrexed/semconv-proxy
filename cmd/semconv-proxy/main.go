@@ -239,7 +239,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	go startTTLSweeper(ctx, dict, cfg, m)
+	go startTTLSweeper(ctx, dict, persister, cfg, m)
 	go startMetricsUpdater(ctx, dict, tracker, ringBuf, m)
 
 	slog.Info("semconv-proxy started successfully")
@@ -309,9 +309,18 @@ func applyMutableConfig(logger *slog.Logger) {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 		slog.Info("applied config reload", "log_level", lvl)
 	}
+
+	if d := viper.GetDuration("ttl-stale"); d > 0 && d != cfg.TTLStale {
+		slog.Info("applied config reload", "ttl_stale", d)
+		cfg.TTLStale = d
+	}
+	if d := viper.GetDuration("ttl-purge"); d > 0 && d != cfg.TTLPurge {
+		slog.Info("applied config reload", "ttl_purge", d)
+		cfg.TTLPurge = d
+	}
 }
 
-func startTTLSweeper(ctx context.Context, dict *dictionary.Dictionary, cfg *config.Config, m *metrics.Metrics) {
+func startTTLSweeper(ctx context.Context, dict *dictionary.Dictionary, persister *storage.Persister, cfg *config.Config, m *metrics.Metrics) {
 	sweepInterval := cfg.TTLStale / 2
 	if sweepInterval < time.Minute {
 		sweepInterval = time.Minute
@@ -325,11 +334,16 @@ func startTTLSweeper(ctx context.Context, dict *dictionary.Dictionary, cfg *conf
 			return
 		case now := <-ticker.C:
 			staleCount := dict.MarkStale(now, cfg.TTLStale)
-			purgedCount := dict.PurgeExpired(now, cfg.TTLPurge)
+			purgedCount, purgedNames := dict.PurgeExpired(now, cfg.TTLPurge)
 			if staleCount > 0 || purgedCount > 0 {
 				slog.Info("ttl sweep completed", "stale", staleCount, "purged", purgedCount)
 				if m != nil {
 					m.DictionaryAttributesRemoved.Add(float64(purgedCount))
+				}
+			}
+			if len(purgedNames) > 0 && persister != nil {
+				for _, name := range purgedNames {
+					persister.DeleteByName(name)
 				}
 			}
 		}
@@ -349,7 +363,7 @@ func startMetricsUpdater(ctx context.Context, dict *dictionary.Dictionary, track
 		case <-ticker.C:
 			m.DictionaryEntries.Set(float64(dict.Count()))
 			m.PipelineRingBufferSize.Set(float64(rb.Len()))
-			m.PipelineLag.Set(float64(rb.Count()))
+			m.PipelineLag.Set(float64(rb.Len()))
 
 			curDropped := rb.Dropped()
 			if delta := curDropped - prevDropped; delta > 0 {

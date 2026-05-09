@@ -7,9 +7,16 @@ metadata:
 data:
   config.yaml: |
     backend_endpoint: {{ .Values.config.backendEndpoint }}
+    backend_insecure: {{ .Values.config.backendInsecure }}
     log_level: {{ .Values.config.logLevel }}
     data_dir: {{ .Values.config.dataDir }}
+    otlp_http_port: {{ .Values.config.otlpHttpPort }}
+    otlp_grpc_port: {{ .Values.config.otlpGrpcPort }}
+    api_port: {{ .Values.config.apiPort }}
     shard_count: {{ .Values.config.shardCount }}
     global_budget: {{ .Values.config.globalBudget }}
     per_attr_cap: {{ .Values.config.perAttrCap }}
     ring_buffer_size: {{ .Values.config.ringBufferSize }}
+    worker_count: {{ .Values.config.workerCount }}
+    ttl_stale: {{ .Values.config.ttlStale }}
+    ttl_purge: {{ .Values.config.ttlPurge }}

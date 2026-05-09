@@ -77,14 +77,14 @@ func (wp *WorkerPool) work(ctx context.Context, id int) {
 func (wp *WorkerPool) processTask(task *AnalysisTask) {
 	start := time.Now()
 
-	attrs, err := wp.extractor.ExtractFromData(string(task.SignalType), task.Data)
+	result, err := wp.extractor.ExtractFromData(string(task.SignalType), task.Data)
 	if err != nil {
 		slog.Warn("extractor failed", "signal_type", task.SignalType, "error", err)
 		return
 	}
 
 	now := task.Timestamp
-	entries := ToDictionaryEntries(attrs, now)
+	entries := ToDictionaryEntries(result.DictionaryAttrs, now)
 
 	for i, entry := range entries {
 		change := wp.dict.Upsert(entry)
@@ -96,9 +96,11 @@ func (wp *WorkerPool) processTask(task *AnalysisTask) {
 				wp.m.DictionaryAttributesChanged.Inc()
 			}
 		}
+		_ = i
+	}
 
-		if wp.tracker != nil && i < len(attrs) {
-			attr := attrs[i]
+	if wp.tracker != nil {
+		for _, attr := range result.CardinalityAttrs {
 			if attr.Value != "" {
 				wp.tracker.TrackValue(attr.Name, attr.Value)
 			}

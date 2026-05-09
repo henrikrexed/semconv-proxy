@@ -114,8 +114,9 @@ func (d *Dictionary) MarkStale(now time.Time, staleThreshold time.Duration) int 
 	return count
 }
 
-func (d *Dictionary) PurgeExpired(now time.Time, purgeThreshold time.Duration) int {
+func (d *Dictionary) PurgeExpired(now time.Time, purgeThreshold time.Duration) (int, []string) {
 	count := 0
+	var names []string
 	for _, s := range d.shards {
 		s.mu.Lock()
 		for name, e := range s.entries {
@@ -123,11 +124,12 @@ func (d *Dictionary) PurgeExpired(now time.Time, purgeThreshold time.Duration) i
 				delete(s.entries, name)
 				d.totalCount.Add(-1)
 				count++
+				names = append(names, name)
 			}
 		}
 		s.mu.Unlock()
 	}
-	return count
+	return count, names
 }
 
 type Filter struct {

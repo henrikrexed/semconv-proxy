@@ -25,17 +25,35 @@ type ExtractedAttr struct {
 	Value      string
 }
 
-func (e *Extractor) ExtractFromData(signalType string, data []byte) ([]ExtractedAttr, error) {
+type ExtractionResult struct {
+	DictionaryAttrs  []ExtractedAttr
+	CardinalityAttrs []ExtractedAttr
+}
+
+func (e *Extractor) ExtractFromData(signalType string, data []byte) (*ExtractionResult, error) {
+	var extractFn func([]byte) ([]ExtractedAttr, error)
 	switch signalType {
 	case "metric":
-		return e.extractMetrics(data)
+		extractFn = e.extractMetrics
 	case "trace":
-		return e.extractTraces(data)
+		extractFn = e.extractTraces
 	case "log":
-		return e.extractLogs(data)
+		extractFn = e.extractLogs
 	default:
 		return nil, fmt.Errorf("extractor: unknown signal type %q", signalType)
 	}
+
+	allAttrs, err := extractFn(data)
+	if err != nil {
+		return nil, err
+	}
+
+	deduped := dedupByName(allAttrs)
+
+	return &ExtractionResult{
+		DictionaryAttrs:  deduped,
+		CardinalityAttrs: allAttrs,
+	}, nil
 }
 
 func (e *Extractor) extractMetrics(data []byte) ([]ExtractedAttr, error) {
@@ -44,58 +62,67 @@ func (e *Extractor) extractMetrics(data []byte) ([]ExtractedAttr, error) {
 		return nil, fmt.Errorf("extractor: unmarshal metrics: %w", err)
 	}
 
-	seen := make(map[string]ExtractedAttr)
+	dedup := make(map[string]ExtractedAttr)
+	vals := make(map[attribKey]struct{})
+	var allAttrs []ExtractedAttr
+
 	metrics := req.Metrics()
 
 	for i := 0; i < metrics.ResourceMetrics().Len(); i++ {
 		rm := metrics.ResourceMetrics().At(i)
-		extractAttrs(rm.Resource().Attributes(), "metric", seen)
+		collectAttrs(rm.Resource().Attributes(), "metric", dedup, vals, &allAttrs)
 
 		for j := 0; j < rm.ScopeMetrics().Len(); j++ {
 			sm := rm.ScopeMetrics().At(j)
-			extractAttrs(sm.Scope().Attributes(), "metric", seen)
+			collectAttrs(sm.Scope().Attributes(), "metric", dedup, vals, &allAttrs)
 
 			for k := 0; k < sm.Metrics().Len(); k++ {
 				m := sm.Metrics().At(k)
-				seen[m.Name()] = ExtractedAttr{
+				metricAttr := ExtractedAttr{
 					Name:       m.Name(),
 					Type:       metricTypeStr(m.Type()),
 					SignalType: "metric",
 				}
-				extractMetricDataPointAttrs(m, seen)
+				dedup[m.Name()] = metricAttr
+				vk := attribKey{name: m.Name(), value: ""}
+				if _, exists := vals[vk]; !exists {
+					vals[vk] = struct{}{}
+					allAttrs = append(allAttrs, metricAttr)
+				}
+				collectMetricDataPointAttrs(m, dedup, vals, &allAttrs)
 			}
 		}
 	}
 
-	return mapToSlice(seen), nil
+	return allAttrs, nil
 }
 
-func extractMetricDataPointAttrs(m pmetric.Metric, seen map[string]ExtractedAttr) {
+func collectMetricDataPointAttrs(m pmetric.Metric, dedup map[string]ExtractedAttr, vals map[attribKey]struct{}, allAttrs *[]ExtractedAttr) {
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
 		dps := m.Gauge().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			extractAttrs(dps.At(i).Attributes(), "metric", seen)
+			collectAttrs(dps.At(i).Attributes(), "metric", dedup, vals, allAttrs)
 		}
 	case pmetric.MetricTypeSum:
 		dps := m.Sum().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			extractAttrs(dps.At(i).Attributes(), "metric", seen)
+			collectAttrs(dps.At(i).Attributes(), "metric", dedup, vals, allAttrs)
 		}
 	case pmetric.MetricTypeHistogram:
 		dps := m.Histogram().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			extractAttrs(dps.At(i).Attributes(), "metric", seen)
+			collectAttrs(dps.At(i).Attributes(), "metric", dedup, vals, allAttrs)
 		}
 	case pmetric.MetricTypeSummary:
 		dps := m.Summary().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			extractAttrs(dps.At(i).Attributes(), "metric", seen)
+			collectAttrs(dps.At(i).Attributes(), "metric", dedup, vals, allAttrs)
 		}
 	case pmetric.MetricTypeExponentialHistogram:
 		dps := m.ExponentialHistogram().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			extractAttrs(dps.At(i).Attributes(), "metric", seen)
+			collectAttrs(dps.At(i).Attributes(), "metric", dedup, vals, allAttrs)
 		}
 	}
 }
@@ -106,25 +133,28 @@ func (e *Extractor) extractTraces(data []byte) ([]ExtractedAttr, error) {
 		return nil, fmt.Errorf("extractor: unmarshal traces: %w", err)
 	}
 
-	seen := make(map[string]ExtractedAttr)
+	dedup := make(map[string]ExtractedAttr)
+	vals := make(map[attribKey]struct{})
+	var allAttrs []ExtractedAttr
+
 	traces := req.Traces()
 
 	for i := 0; i < traces.ResourceSpans().Len(); i++ {
 		rs := traces.ResourceSpans().At(i)
-		extractAttrs(rs.Resource().Attributes(), "trace", seen)
+		collectAttrs(rs.Resource().Attributes(), "trace", dedup, vals, &allAttrs)
 
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
 			ss := rs.ScopeSpans().At(j)
-			extractAttrs(ss.Scope().Attributes(), "trace", seen)
+			collectAttrs(ss.Scope().Attributes(), "trace", dedup, vals, &allAttrs)
 
 			for k := 0; k < ss.Spans().Len(); k++ {
 				span := ss.Spans().At(k)
-				extractAttrs(span.Attributes(), "trace", seen)
+				collectAttrs(span.Attributes(), "trace", dedup, vals, &allAttrs)
 			}
 		}
 	}
 
-	return mapToSlice(seen), nil
+	return allAttrs, nil
 }
 
 func (e *Extractor) extractLogs(data []byte) ([]ExtractedAttr, error) {
@@ -133,34 +163,48 @@ func (e *Extractor) extractLogs(data []byte) ([]ExtractedAttr, error) {
 		return nil, fmt.Errorf("extractor: unmarshal logs: %w", err)
 	}
 
-	seen := make(map[string]ExtractedAttr)
+	dedup := make(map[string]ExtractedAttr)
+	vals := make(map[attribKey]struct{})
+	var allAttrs []ExtractedAttr
+
 	logs := req.Logs()
 
 	for i := 0; i < logs.ResourceLogs().Len(); i++ {
 		rl := logs.ResourceLogs().At(i)
-		extractAttrs(rl.Resource().Attributes(), "log", seen)
+		collectAttrs(rl.Resource().Attributes(), "log", dedup, vals, &allAttrs)
 
 		for j := 0; j < rl.ScopeLogs().Len(); j++ {
 			sl := rl.ScopeLogs().At(j)
-			extractAttrs(sl.Scope().Attributes(), "log", seen)
+			collectAttrs(sl.Scope().Attributes(), "log", dedup, vals, &allAttrs)
 
 			for k := 0; k < sl.LogRecords().Len(); k++ {
 				record := sl.LogRecords().At(k)
-				extractAttrs(record.Attributes(), "log", seen)
+				collectAttrs(record.Attributes(), "log", dedup, vals, &allAttrs)
 			}
 		}
 	}
 
-	return mapToSlice(seen), nil
+	return allAttrs, nil
 }
 
-func extractAttrs(m pcommon.Map, signalType string, seen map[string]ExtractedAttr) {
+type attribKey struct {
+	name  string
+	value string
+}
+
+func collectAttrs(m pcommon.Map, signalType string, dedup map[string]ExtractedAttr, vals map[attribKey]struct{}, allAttrs *[]ExtractedAttr) {
 	m.Range(func(k string, v pcommon.Value) bool {
-		seen[k] = ExtractedAttr{
+		attr := ExtractedAttr{
 			Name:       k,
 			Type:       valueTypeStr(v.Type()),
 			SignalType: signalType,
 			Value:      valueToStr(v),
+		}
+		dedup[k] = attr
+		vk := attribKey{name: k, value: attr.Value}
+		if _, exists := vals[vk]; !exists {
+			vals[vk] = struct{}{}
+			*allAttrs = append(*allAttrs, attr)
 		}
 		return true
 	})
@@ -219,10 +263,14 @@ func valueToStr(v pcommon.Value) string {
 	}
 }
 
-func mapToSlice(m map[string]ExtractedAttr) []ExtractedAttr {
-	result := make([]ExtractedAttr, 0, len(m))
-	for _, v := range m {
-		result = append(result, v)
+func dedupByName(attrs []ExtractedAttr) []ExtractedAttr {
+	seen := make(map[string]struct{}, len(attrs))
+	result := make([]ExtractedAttr, 0, len(attrs))
+	for _, a := range attrs {
+		if _, ok := seen[a.Name]; !ok {
+			seen[a.Name] = struct{}{}
+			result = append(result, a)
+		}
 	}
 	return result
 }

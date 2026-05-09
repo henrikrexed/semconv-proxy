@@ -119,16 +119,16 @@ func TestExtractorMetrics(t *testing.T) {
 	}
 	data := buildTestMetricData(t, "http.requests", attrs)
 
-	extracted, err := e.ExtractFromData("metric", data)
+	result, err := e.ExtractFromData("metric", data)
 	if err != nil {
 		t.Fatalf("ExtractFromData error: %v", err)
 	}
-	if len(extracted) == 0 {
+	if len(result.DictionaryAttrs) == 0 {
 		t.Error("expected extracted attributes, got none")
 	}
 
 	names := make(map[string]bool)
-	for _, a := range extracted {
+	for _, a := range result.DictionaryAttrs {
 		names[a.Name] = true
 	}
 	if !names["http.requests"] {
@@ -140,11 +140,11 @@ func TestExtractorTraces(t *testing.T) {
 	e := NewExtractor()
 	data := buildTestTraceData(t, map[string]string{"http.method": "GET", "span.kind": "server"})
 
-	extracted, err := e.ExtractFromData("trace", data)
+	result, err := e.ExtractFromData("trace", data)
 	if err != nil {
 		t.Fatalf("ExtractFromData error: %v", err)
 	}
-	if len(extracted) == 0 {
+	if len(result.DictionaryAttrs) == 0 {
 		t.Error("expected extracted attributes from trace, got none")
 	}
 }
@@ -153,11 +153,11 @@ func TestExtractorLogs(t *testing.T) {
 	e := NewExtractor()
 	data := buildTestLogData(t, map[string]string{"log.level": "info", "service.name": "api"})
 
-	extracted, err := e.ExtractFromData("log", data)
+	result, err := e.ExtractFromData("log", data)
 	if err != nil {
 		t.Fatalf("ExtractFromData error: %v", err)
 	}
-	if len(extracted) == 0 {
+	if len(result.DictionaryAttrs) == 0 {
 		t.Error("expected extracted attributes from log, got none")
 	}
 }
@@ -167,6 +167,99 @@ func TestExtractorUnknownSignalType(t *testing.T) {
 	_, err := e.ExtractFromData("unknown", []byte{})
 	if err == nil {
 		t.Error("expected error for unknown signal type")
+	}
+}
+
+func TestExtractorMultiValueCardinality(t *testing.T) {
+	e := NewExtractor()
+	metrics := pmetric.NewMetrics()
+	rm := metrics.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("http.requests")
+	m.SetEmptySum()
+
+	vals := []string{"GET", "POST", "PUT"}
+	for _, v := range vals {
+		dp := m.Sum().DataPoints().AppendEmpty()
+		dp.SetIntValue(1)
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+		dp.Attributes().PutStr("http.method", v)
+	}
+
+	req := pmetricotlp.NewExportRequestFromMetrics(metrics)
+	data, err := req.MarshalProto()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	result, err := e.ExtractFromData("metric", data)
+	if err != nil {
+		t.Fatalf("ExtractFromData error: %v", err)
+	}
+
+	cardinalitySet := make(map[string]bool)
+	for _, attr := range result.CardinalityAttrs {
+		if attr.Name == "http.method" {
+			cardinalitySet[attr.Value] = true
+		}
+	}
+	if len(cardinalitySet) != 3 {
+		t.Errorf("expected 3 unique http.method values in CardinalityAttrs, got %d: %v", len(cardinalitySet), cardinalitySet)
+	}
+
+	dictNames := make(map[string]bool)
+	for _, attr := range result.DictionaryAttrs {
+		dictNames[attr.Name] = true
+	}
+	if !dictNames["http.method"] {
+		t.Error("expected http.method in DictionaryAttrs")
+	}
+	if !dictNames["http.requests"] {
+		t.Error("expected http.requests in DictionaryAttrs")
+	}
+}
+
+func TestWorkerPoolCardinalityMultiValue(t *testing.T) {
+	dict, _ := dictionary.New(&dictionary.Config{ShardCount: 4, GlobalBudget: 1000, PerAttrCap: 100}, nil)
+	tracker := cardinality.NewTracker(1000, 100, nil)
+	ch := make(chan *AnalysisTask, 100)
+	ext := NewExtractor()
+	wp := NewWorkerPoolWithMetrics(2, ch, dict, tracker, nil, ext)
+
+	ctx := context.Background()
+	wp.Start(ctx)
+
+	metrics := pmetric.NewMetrics()
+	rm := metrics.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("http.requests")
+	m.SetEmptySum()
+	for _, method := range []string{"GET", "POST", "PUT"} {
+		dp := m.Sum().DataPoints().AppendEmpty()
+		dp.SetIntValue(1)
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+		dp.Attributes().PutStr("http.method", method)
+	}
+	req := pmetricotlp.NewExportRequestFromMetrics(metrics)
+	data, _ := req.MarshalProto()
+
+	for i := 0; i < 3; i++ {
+		ch <- &AnalysisTask{
+			SignalType: SignalMetric,
+			Timestamp:  time.Now(),
+			Data:       data,
+		}
+	}
+	close(ch)
+
+	time.Sleep(300 * time.Millisecond)
+	wp.Stop()
+
+	card := tracker.Cardinality("http.method")
+	if card < 3 {
+		t.Errorf("expected cardinality >= 3 for http.method, got %d", card)
 	}
 }
 

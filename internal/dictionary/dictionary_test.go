@@ -212,7 +212,7 @@ func TestPurgeExpired(t *testing.T) {
 	d.Upsert(&AttributeEntry{Name: "expired", FirstSeen: now.Add(-200 * time.Hour), LastSeen: now.Add(-200 * time.Hour), Status: StatusActive})
 	d.Upsert(&AttributeEntry{Name: "active", FirstSeen: now, LastSeen: now, Status: StatusActive})
 
-	purged := d.PurgeExpired(now, 7*24*time.Hour)
+	purged, _ := d.PurgeExpired(now, 7*24*time.Hour)
 	if purged != 1 {
 		t.Errorf("PurgeExpired count = %d, want 1", purged)
 	}

@@ -40,12 +40,19 @@ resources:
 
 config:
   backendEndpoint: ""
+  backendInsecure: true
   logLevel: info
   dataDir: /data
+  otlpHttpPort: 4318
+  otlpGrpcPort: 4317
+  apiPort: 8080
   shardCount: 64
   globalBudget: 10000
   perAttrCap: 1000
   ringBufferSize: 10000
+  workerCount: 0
+  ttlStale: 24h
+  ttlPurge: 168h
 
 persistence:
   enabled: true

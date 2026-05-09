@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 )
@@ -41,11 +42,38 @@ func (s *Server) handleDictionary(w http.ResponseWriter, r *http.Request) {
 	total := int(s.dict.Count())
 	filtered := s.dict.List(filter)
 
+	type entryResponse struct {
+		Name        string                  `json:"name"`
+		Type        string                  `json:"type"`
+		SignalTypes []dictionary.SignalType `json:"signal_types"`
+		Cardinality int64                   `json:"cardinality"`
+		FirstSeen   time.Time               `json:"first_seen"`
+		LastSeen    time.Time               `json:"last_seen"`
+		Status      dictionary.EntryStatus  `json:"status"`
+	}
+
+	entries := make([]entryResponse, len(filtered))
+	for i, e := range filtered {
+		card := e.Cardinality
+		if s.tracker != nil {
+			card = s.tracker.Cardinality(e.Name)
+		}
+		entries[i] = entryResponse{
+			Name:        e.Name,
+			Type:        e.Type,
+			SignalTypes: e.SignalTypes,
+			Cardinality: card,
+			FirstSeen:   e.FirstSeen,
+			LastSeen:    e.LastSeen,
+			Status:      e.Status,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"total":   total,
 		"offset":  filter.Offset,
 		"limit":   filter.Limit,
-		"entries": filtered,
+		"entries": entries,
 	})
 }
 
@@ -67,11 +95,16 @@ func (s *Server) handleDictionaryEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cardinality := entry.Cardinality
+	if s.tracker != nil {
+		cardinality = s.tracker.Cardinality(name)
+	}
+
 	response := map[string]interface{}{
 		"name":         entry.Name,
 		"type":         entry.Type,
 		"signal_types": entry.SignalTypes,
-		"cardinality":  entry.Cardinality,
+		"cardinality":  cardinality,
 		"first_seen":   entry.FirstSeen,
 		"last_seen":    entry.LastSeen,
 		"status":       entry.Status,

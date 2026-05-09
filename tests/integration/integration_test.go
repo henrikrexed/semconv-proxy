@@ -252,7 +252,7 @@ func TestDictionaryStalenessAndPurge(t *testing.T) {
 		t.Errorf("MarkStale = %d, want 1", stale)
 	}
 
-	purged := dict.PurgeExpired(now, 47*time.Hour)
+	purged, _ := dict.PurgeExpired(now, 47*time.Hour)
 	if purged != 1 {
 		t.Errorf("PurgeExpired = %d, want 1", purged)
 	}
