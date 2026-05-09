@@ -59,12 +59,15 @@ persistence:
   size: 1Gi
   storageClassName: ""
 
-ingress:
+gateway:
   enabled: false
   className: ""
   annotations: {}
-  hosts: []
-  tls: []
+  hostnames: []
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
 
 nodeSelector: {}
 tolerations: []

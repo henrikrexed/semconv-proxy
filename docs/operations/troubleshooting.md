@@ -2,47 +2,135 @@
 
 ## Common Issues
 
-### Signals Not Forwarded
+### Proxy Won't Start
 
-**Symptom:** Signals received but not reaching backend.
+**Symptom:** Container exits immediately.
 
-**Checks:**
-1. Verify backend endpoint: `--backend-endpoint`
-2. Check forwarder logs: `--log-level=debug`
-3. Verify network connectivity to backend
+**Check logs:**
 
-### Dictionary Empty
+```bash
+docker logs semconv-proxy
+# or
+kubectl logs -l app=semconv-proxy
+```
 
-**Symptom:** No attributes discovered.
+**Common causes:**
 
-**Checks:**
-1. Verify signals are reaching the receiver (check `/metrics`)
-2. Check ring buffer: `semconv_proxy_ring_buffer_dropped_total`
-3. Verify worker pool is running: `semconv_proxy_worker_pool_active`
+| Error | Fix |
+|-------|-----|
+| `config: backend-endpoint is required` | Set `--backend-endpoint` or `SEMCONV_PROXY_BACKEND_ENDPOINT` |
+| `failed to create data directory` | Ensure `--data-dir` is writable by the proxy user (UID 65532) |
+| `api: listen: address already in use` | Change the port with `--api-port` or check for conflicting services |
+
+### Signals Not Reaching Backend
+
+**Check forwarding metrics:**
+
+```bash
+curl http://localhost:8080/metrics | grep semconv_proxy_signals
+```
+
+| Symptom | Check | Fix |
+|---------|-------|-----|
+| `received` > 0 but `forwarded` = 0 | Backend unreachable | Verify `--backend-endpoint` is correct and reachable |
+| `dropped` > 0 | Backend returning errors | Check backend health, TLS settings |
+| `received` = 0 | No signals arriving | Verify Collector exporter points at the proxy |
+
+**Test backend connectivity:**
+
+```bash
+# From inside the proxy container
+docker exec semconv-proxy wget -qO- http://backend-host:4318/
+```
+
+### Dictionary Is Empty
+
+**Possible causes:**
+
+1. No signals have been sent through the proxy yet
+2. Signals are being forwarded but not analyzed (ring buffer full)
+3. Persistence is not loading on restart
+
+**Check pipeline metrics:**
+
+```bash
+curl http://localhost:8080/metrics | grep -E "pipeline_lag|pipeline_drops|dictionary_entries"
+```
+
+If `pipeline_drops_total` is increasing, the ring buffer is overflowing. Increase `--ring-buffer-size` or `--worker-count`.
 
 ### High Memory Usage
 
-**Symptom:** Proxy consuming too much memory.
+**Check cardinality:**
 
-**Solutions:**
-1. Reduce `--dictionary.global-budget`
-2. Decrease `--dictionary.ttl`
-3. Reduce `--analysis.ring-buffer-size`
+```bash
+curl http://localhost:8080/api/v1/cardinality | jq .
+```
 
-### Pebble Errors
+If `utilization_pct` is high:
 
-**Symptom:** Storage write failures.
+1. Identify high-cardinality attributes: `GET /api/v1/cardinality?threshold=50`
+2. Add OTel Collector processors to drop or aggregate those attributes
+3. Reduce `--global-budget` to force more aggressive eviction
 
-**Checks:**
-1. Verify disk space on storage path
-2. Check file permissions
-3. Disable persistence if not needed: `--storage.enabled=false`
+### Readiness Probe Failing
 
-### gRPC Connection Refused
+```bash
+curl http://localhost:8080/readyz
+```
 
-**Symptom:** Clients can't connect on port 4317.
+If status is `loading`:
 
-**Checks:**
-1. Verify `--grpc-port` is correct
-2. Check firewall rules
-3. Ensure no other process is using the port
+- Dictionary is still recovering from Pebble — wait for it to complete
+- If stuck, check Pebble data directory for corruption
+
+If a component shows `DEGRADED` or `FAILED`:
+
+- Check logs for that component
+- The proxy continues operating in degraded mode for non-critical component failures
+
+### Export Produces Empty YAML
+
+**Check dictionary state:**
+
+```bash
+curl http://localhost:8080/api/v1/dictionary | jq '.total'
+```
+
+If `total` is 0, the dictionary is empty. Ensure signals have been flowing through the proxy.
+
+### Persistence Not Working
+
+**Verify the data directory:**
+
+```bash
+# Check if Pebble files exist
+ls -la /data/pebble/
+```
+
+**Common issues:**
+
+- Volume not mounted correctly in Docker/Kubernetes
+- Permissions: proxy runs as UID 65532, directory must be writable
+- `--data-dir` pointing to wrong location
+
+## Debug Mode
+
+Run with debug logging for detailed component-level output:
+
+```bash
+semconv-proxy --log-level=debug --backend-endpoint=localhost:4317
+```
+
+Debug logs include:
+
+- Every signal received and forwarded
+- Dictionary upsert details
+- Ring buffer and worker pool state
+- Pebble batch writes
+- API request details
+
+## Getting Help
+
+- [GitHub Issues](https://github.com/henrikrexed/semconv-proxy/issues) — bug reports and feature requests
+- [Discussions](https://github.com/henrikrexed/semconv-proxy/discussions) — questions and community

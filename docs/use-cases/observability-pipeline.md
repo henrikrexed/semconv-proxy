@@ -1,16 +1,50 @@
 # Observability Pipeline — Cardinality Management
 
+## What This Use Case Achieves
+
+Cardinality Management prevents high-cardinality attributes from silently inflating your backend costs and degrading dashboard performance. SemConv Proxy tracks the number of unique values for every discovered attribute using exact counting, HyperLogLog approximation, and Count-Min Sketch frequency estimation. It exposes budget utilization and per-attribute cardinality through a dedicated API endpoint and Prometheus metrics, enabling you to catch cardinality explosions before they cause incidents.
+
 ## The Problem
 
 High-cardinality attributes cause expensive backend queries, increased storage costs, and slow dashboards. An attribute like `user.id` or `k8s.pod.name` with thousands of unique values can explode your backend costs. But you often don't know which attributes are the worst offenders until it's too late.
+
+## Cardinality Management Flow
+
+```mermaid
+sequenceDiagram
+    participant Coll as OTel Collector
+    participant Proxy as SemConv Proxy
+    participant BE as Backend
+    participant Prom as Prometheus
+    participant Eng as SRE / On-Call
+
+    Coll->>Proxy: OTLP signals
+    par Forwarding
+        Proxy->>BE: Forward all signals
+    and Cardinality Tracking
+        Proxy->>Proxy: Count unique values per attribute
+        Proxy->>Proxy: Exact count (< cap) or HLL (> cap)
+        Proxy->>Proxy: Check global budget
+        alt Budget exceeded
+            Proxy->>Proxy: Evict least-recently-used entries
+        end
+    end
+    Proxy->>Prom: Expose cardinality metrics
+    Prom->>Eng: Alert: HighCardinalityDetected
+    Eng->>Proxy: GET /api/v1/cardinality
+    Proxy-->>Eng: Budget utilization + high-card attrs
+    Eng->>Proxy: GET /api/v1/dictionary/{attr}
+    Proxy-->>Eng: Top-K values for diagnosis
+    Note over Eng: Take action: drop, aggregate,<br/>or normalize the attribute
+```
 
 ## The Solution
 
 SemConv Proxy tracks cardinality for every discovered attribute and exposes it through a dedicated API endpoint and Prometheus metrics.
 
-## Walkthrough
+## Step-by-Step Implementation Guide
 
-### Step 1: Deploy with Monitoring
+### Step 1: Deploy with Cardinality Limits Configured
 
 ```bash
 helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
@@ -19,7 +53,7 @@ helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
   --set config.perAttrCap=1000
 ```
 
-### Step 2: Monitor Cardinality Metrics
+### Step 2: Configure Prometheus Alerts for Cardinality
 
 Add these Prometheus alerts to your monitoring stack:
 
@@ -44,7 +78,7 @@ groups:
           summary: "Cardinality budget is above 80% utilization"
 ```
 
-### Step 3: Investigate High-Cardinality Attributes
+### Step 3: Investigate High-Cardinality Attributes via API
 
 When an alert fires, investigate:
 
@@ -84,7 +118,7 @@ Filter by threshold to focus on the worst offenders:
 curl "http://semconv-proxy:8080/api/v1/cardinality?threshold=100" | jq .
 ```
 
-### Step 4: View Top Values for Diagnosis
+### Step 4: Diagnose with Top-K Value Analysis
 
 Get the top values for a specific high-cardinality attribute:
 
@@ -102,7 +136,7 @@ Response:
 ]
 ```
 
-### Step 5: Take Action
+### Step 5: Remediate Based on Findings
 
 Based on the cardinality data:
 
@@ -112,7 +146,7 @@ Based on the cardinality data:
 | `user.id` has 523 unique values | Stop propagating user ID as a metric attribute; move to trace-only |
 | `request.path` has 200 unique values | Normalize paths (e.g., `/users/123` → `/users/{id}`) |
 
-### Step 6: Monitor Improvement
+### Step 6: Track Cardinality Reduction Over Time
 
 After making changes, track cardinality reduction over time:
 
