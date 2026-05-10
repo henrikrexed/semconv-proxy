@@ -1,5 +1,7 @@
 # Semconv Proxy
 
+[![CI](https://github.com/henrikrexed/semconv-proxy/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/henrikrexed/semconv-proxy/actions/workflows/ci.yaml)
+
 **OpenTelemetry Collector Semantic Convention Proxy** — a transparent proxy that intercepts, analyzes, and forwards OpenTelemetry signals to discover, track, and export semantic conventions in real time.
 
 ## Why Semconv Proxy?
