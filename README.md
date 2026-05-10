@@ -31,17 +31,12 @@ SemConv Proxy solves this by sitting transparently in the pipeline — `App → 
 
 ## How It Works
 
-```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐     ┌──────────┐
-│   Your App  │ ──► │OTel Collector│ ──► │  SemConv Proxy │ ──► │ Backend  │
-└─────────────┘     └──────────────┘     └───────┬────────┘     └──────────┘
-                                                 │
-                                                 ▼
-                                          ┌──────────────┐
-                                          │ REST API +   │
-                                          │ Weaver YAML  │
-                                          │ Prom metrics │
-                                          └──────────────┘
+```mermaid
+flowchart LR
+    App["Your App"] --> Coll["OTel Collector"]
+    Coll --> Proxy["SemConv Proxy"]
+    Proxy --> Backend["Backend"]
+    Proxy --> Surface["REST API +<br/>Weaver YAML +<br/>Prom metrics"]
 ```
 
 Internally: OTLP receivers (HTTP/gRPC) → ring buffer → worker pool → 64-shard concurrent dictionary → Pebble persistence. See the [Architecture docs](https://henrikrexed.github.io/semconv-proxy/architecture/) for the full diagram and data flow.
