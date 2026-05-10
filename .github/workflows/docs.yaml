@@ -5,6 +5,13 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yaml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yaml'
   workflow_dispatch:
 
 permissions:
@@ -29,8 +36,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
       - name: Build mkdocs
-        run: mkdocs build --site-dir site
+        run: mkdocs build --strict --site-dir site
       - name: Upload artifact
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -38,6 +46,7 @@ jobs:
   deploy:
     name: Deploy Docs
     needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
