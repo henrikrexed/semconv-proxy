@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
   security-events: write
 
 jobs:
@@ -185,19 +186,46 @@ jobs:
           path: sbom-source.spdx.json
 
   docker-build:
-    name: Docker Build Verification
+    name: Docker Build${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && ' & Publish (:main)' || ' Verification' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-      - name: Build multi-platform Docker image
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=main,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=main-{{sha}},enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=semconv-proxy
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build (and publish on main) Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: false
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
