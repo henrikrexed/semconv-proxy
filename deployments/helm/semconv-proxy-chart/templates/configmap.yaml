@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "semconv-proxy.fullname" . }}
+  name: {{ include "semconv-proxy-chart.fullname" . }}
   labels:
-    {{- include "semconv-proxy.labels" . | nindent 4 }}
+    {{- include "semconv-proxy-chart.labels" . | nindent 4 }}
 data:
   config.yaml: |
     backend_endpoint: {{ .Values.config.backendEndpoint }}

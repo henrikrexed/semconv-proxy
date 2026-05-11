@@ -29,9 +29,19 @@ Multi-platform images are available for `linux/amd64` and `linux/arm64`.
 
 ## Helm Chart (Kubernetes)
 
+From the published OCI chart on GHCR:
+
 ```bash
-helm repo add semconv-proxy https://henrikrexed.github.io/semconv-proxy/
-helm install semconv-proxy semconv-proxy/semconv-proxy \
+helm install semconv-proxy \
+  oci://ghcr.io/henrikrexed/semconv-proxy-chart \
+  --version 0.1.0 \
+  --set config.backendEndpoint=otel-collector.observability:4317
+```
+
+Or from the in-tree source:
+
+```bash
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart \
   --set config.backendEndpoint=otel-collector.observability:4317
 ```
 

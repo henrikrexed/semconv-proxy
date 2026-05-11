@@ -62,10 +62,24 @@ make build
 
 ### Deploy on Kubernetes
 
+From the published OCI chart on GHCR:
+
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy \
-  --set backend.endpoint=otel-collector.observability.svc.cluster.local:4317
+helm install semconv-proxy \
+  oci://ghcr.io/henrikrexed/semconv-proxy-chart \
+  --version 0.1.0 \
+  --set config.backendEndpoint=otel-collector.observability.svc.cluster.local:4317
 ```
+
+Or from the in-tree source:
+
+```bash
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart \
+  --set config.backendEndpoint=otel-collector.observability.svc.cluster.local:4317
+```
+
+The chart artifact is published as `semconv-proxy-chart` (distinct from the
+container image `semconv-proxy`) to avoid GHCR namespace collisions.
 
 Once running, point your OTel Collectors at the proxy's OTLP endpoints (`:4317` gRPC, `:4318` HTTP) and query the dictionary:
 

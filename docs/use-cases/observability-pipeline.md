@@ -47,7 +47,7 @@ SemConv Proxy tracks cardinality for every discovered attribute and exposes it t
 ### Step 1: Deploy with Cardinality Limits Configured
 
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector.observability:4317 \
   --set config.globalBudget=10000 \
   --set config.perAttrCap=1000
