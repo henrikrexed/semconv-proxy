@@ -57,7 +57,7 @@ Deploy SemConv Proxy as a central aggregation point. All OTel Collectors in the 
 ### Step 1: Deploy as a Central Aggregation Service
 
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector-gateway.observability:4317 \
   --set config.globalBudget=50000 \
   --set config.perAttrCap=2000 \

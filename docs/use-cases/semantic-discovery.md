@@ -56,7 +56,7 @@ Deploy SemConv Proxy in your development environment. It observes live telemetry
 ### Step 1: Deploy the Proxy in Your Development Environment
 
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector.observability:4317 \
   --set persistence.enabled=true
 ```

@@ -1,0 +1,30 @@
+apiVersion: v2
+name: semconv-proxy-chart
+description: Helm chart for SemConv Proxy — a transparent OTLP proxy that auto-discovers OpenTelemetry semantic conventions.
+type: application
+# Chart version. Bumped per chart release; CI may suffix -main.<sha7> for builds off main.
+version: 0.1.0
+# Application version (matches the semconv-proxy container image tag this chart targets by default).
+appVersion: "0.1.0"
+keywords:
+  - opentelemetry
+  - otel
+  - semconv
+  - proxy
+  - observability
+home: https://github.com/henrikrexed/semconv-proxy
+sources:
+  - https://github.com/henrikrexed/semconv-proxy
+maintainers:
+  - name: henrikrexed
+    url: https://github.com/henrikrexed
+icon: https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/main/static/img/logos/opentelemetry-icon-color.svg
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://henrikrexed.github.io/semconv-proxy/
+    - name: Container Image
+      url: https://github.com/henrikrexed/semconv-proxy/pkgs/container/semconv-proxy
+license: Apache-2.0

@@ -101,7 +101,7 @@ graph TB
 ```
 
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector.observability:4317 \
   --set persistence.enabled=true \
   --set persistence.size=5Gi

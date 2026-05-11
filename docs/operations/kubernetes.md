@@ -3,7 +3,7 @@
 ## Quick Install
 
 ```bash
-helm install semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm install semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector.observability:4317
 ```
 
@@ -191,7 +191,7 @@ ingress:
 ## Upgrading
 
 ```bash
-helm upgrade semconv-proxy ./deployments/helm/semconv-proxy/ \
+helm upgrade semconv-proxy ./deployments/helm/semconv-proxy-chart/ \
   --set config.backendEndpoint=otel-collector.observability:4317 \
   --set config.globalBudget=50000
 ```

@@ -1,0 +1,44 @@
+SemConv Proxy is installed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart:     {{ .Chart.Name }} ({{ .Chart.Version }})
+App:       {{ .Chart.AppVersion }}
+Image:     {{ include "semconv-proxy-chart.image" . }}
+
+Endpoints (in-cluster):
+  - OTLP gRPC : {{ include "semconv-proxy-chart.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.ports.grpc }}
+  - OTLP HTTP : {{ include "semconv-proxy-chart.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.ports.http }}
+  - REST API  : {{ include "semconv-proxy-chart.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.ports.api }}
+
+{{- if not .Values.config.backendEndpoint }}
+
+WARNING: config.backendEndpoint is empty. The proxy will refuse to start.
+         Re-install with:
+           --set config.backendEndpoint=<host>:<port>
+{{- end }}
+
+Quick checks:
+
+  # Forward the API locally
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "semconv-proxy-chart.fullname" . }} \
+    8080:{{ .Values.service.ports.api }}
+
+  # Health
+  curl -fsS http://localhost:8080/healthz
+
+  # Discovered attributes
+  curl -fsS http://localhost:8080/api/v1/dictionary/attributes
+
+  # Export Weaver-compatible YAML
+  curl -fsS http://localhost:8080/api/v1/weaver/export > semconv.yaml
+
+{{- if .Values.gateway.enabled }}
+
+Gateway API:
+  kubectl get gateway,httproute -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- end }}
+
+Point your OTel Collectors at the gRPC ({{ .Values.service.ports.grpc }}) or HTTP ({{ .Values.service.ports.http }}) endpoint above.
+Docs: https://henrikrexed.github.io/semconv-proxy/
