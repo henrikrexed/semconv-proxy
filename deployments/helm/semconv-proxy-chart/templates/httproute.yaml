@@ -7,10 +7,10 @@ metadata:
     {{- include "semconv-proxy-chart.labels" . | nindent 4 }}
 spec:
   parentRefs:
-    - name: {{ include "semconv-proxy-chart.fullname" . }}
-      {{- range .Values.gateway.listeners }}
+    {{- range .Values.gateway.listeners }}
+    - name: {{ include "semconv-proxy-chart.fullname" $ }}
       sectionName: {{ .name }}
-      {{- end }}
+    {{- end }}
   {{- if .Values.gateway.hostnames }}
   hostnames:
     {{- range .Values.gateway.hostnames }}
