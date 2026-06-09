@@ -143,6 +143,84 @@ func TestParseNormalization(t *testing.T) {
 	}
 }
 
+// Enum-typed attributes must retain their members, not collapse to the bare
+// string "enum", so the UI can list allowed values.
+func TestEnumMembersPreserved(t *testing.T) {
+	const data = `{
+	  "registry_url": "test://reg",
+	  "groups": [
+	    {
+	      "id": "attr.http",
+	      "type": "attribute_group",
+	      "attributes": [
+	        {
+	          "name": "http.request.method",
+	          "type": {"members": [
+	            {"id": "get", "value": "GET", "brief": "GET method", "stability": "stable"},
+	            {"id": "post", "value": "POST"}
+	          ]},
+	          "brief": "HTTP method"
+	        }
+	      ]
+	    }
+	  ]
+	}`
+	reg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	it, ok := reg.Get("attribute:http.request.method")
+	if !ok {
+		t.Fatal("missing http.request.method")
+	}
+	if it.ValueType != "enum" {
+		t.Errorf("value type = %q, want enum", it.ValueType)
+	}
+	if len(it.Enum) != 2 {
+		t.Fatalf("enum members = %d, want 2", len(it.Enum))
+	}
+	if it.Enum[0].Value != "GET" || it.Enum[0].ID != "get" || it.Enum[0].Stability != "stable" {
+		t.Errorf("first member = %+v", it.Enum[0])
+	}
+	if it.Enum[1].Value != "POST" {
+		t.Errorf("second member value = %q", it.Enum[1].Value)
+	}
+}
+
+// Examples given as arrays-of-arrays must flatten to a flat string slice rather
+// than rendering raw JSON.
+func TestNestedExamplesFlatten(t *testing.T) {
+	const data = `{
+	  "registry_url": "test://reg",
+	  "groups": [
+	    {
+	      "id": "attr.x",
+	      "type": "attribute_group",
+	      "attributes": [
+	        {"name": "http.request.header", "type": "string", "examples": [["a", "b"], ["c"]]}
+	      ]
+	    }
+	  ]
+	}`
+	reg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	it, ok := reg.Get("attribute:http.request.header")
+	if !ok {
+		t.Fatal("missing attribute")
+	}
+	want := []string{"a", "b", "c"}
+	if len(it.Examples) != len(want) {
+		t.Fatalf("examples = %v, want %v", it.Examples, want)
+	}
+	for i, e := range want {
+		if it.Examples[i] != e {
+			t.Errorf("examples[%d] = %q, want %q", i, it.Examples[i], e)
+		}
+	}
+}
+
 // Ensure Item marshals cleanly for the API layer (no unexpected panics on the
 // polymorphic fields).
 func TestItemJSONRoundTrip(t *testing.T) {

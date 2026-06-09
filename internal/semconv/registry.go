@@ -35,6 +35,14 @@ type Deprecation struct {
 	Note      string `json:"note,omitempty"`
 }
 
+// EnumMember is one allowed value of an enum-typed attribute.
+type EnumMember struct {
+	ID        string `json:"id,omitempty"`
+	Value     string `json:"value"`
+	Brief     string `json:"brief,omitempty"`
+	Stability string `json:"stability,omitempty"`
+}
+
 // Item is a normalized, searchable semantic-convention entry. Attributes,
 // metrics, spans, events and entities are flattened into this single shape so
 // the UI can search across all signal types uniformly.
@@ -47,7 +55,8 @@ type Item struct {
 	Note        string       `json:"note,omitempty"`
 	Stability   string       `json:"stability,omitempty"`
 	Deprecated  *Deprecation `json:"deprecated,omitempty"`
-	ValueType   string       `json:"value_type,omitempty"` // attribute value type (string, int, ...)
+	ValueType   string       `json:"value_type,omitempty"` // attribute value type (string, int, enum, ...)
+	Enum        []EnumMember `json:"enum,omitempty"`       // members when ValueType == "enum"
 	Examples    []string     `json:"examples,omitempty"`
 	Requirement string       `json:"requirement_level,omitempty"`
 	Unit        string       `json:"unit,omitempty"`       // metric
@@ -92,6 +101,7 @@ type rawAttribute struct {
 type Registry struct {
 	url   string
 	items []Item
+	byKey map[string]int
 }
 
 // Load parses the embedded snapshot into a queryable Registry.
@@ -194,10 +204,16 @@ func parse(data []byte) (*Registry, error) {
 		}
 		return reg.items[i].Name < reg.items[j].Name
 	})
+
+	reg.byKey = make(map[string]int, len(reg.items))
+	for i, it := range reg.items {
+		reg.byKey[it.Key] = i
+	}
 	return reg, nil
 }
 
 func attributeItem(a rawAttribute) Item {
+	valueType, enum := attrType(a.Type)
 	return Item{
 		Key:         "attribute:" + a.Name,
 		Name:        a.Name,
@@ -207,7 +223,8 @@ func attributeItem(a rawAttribute) Item {
 		Note:        a.Note,
 		Stability:   a.Stability,
 		Deprecated:  a.Deprecated,
-		ValueType:   attrType(a.Type),
+		ValueType:   valueType,
+		Enum:        enum,
 		Examples:    examples(a.Examples),
 		Requirement: requirementLevel(a.RequirementLevel),
 	}
@@ -257,38 +274,52 @@ func namespaceOf(name string) string {
 	return name
 }
 
-// attrType resolves an attribute's type, which is either a string ("string",
-// "int", ...) or an enum object. For enums we return "enum".
-func attrType(raw json.RawMessage) string {
+// attrType resolves an attribute's type. It is either a string ("string",
+// "int", ...) or an enum object carrying members. For enums we return the type
+// label "enum" plus the parsed members so callers can surface allowed values.
+func attrType(raw json.RawMessage) (string, []EnumMember) {
 	if len(raw) == 0 {
-		return ""
+		return "", nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
+		return s, nil
 	}
-	return "enum"
+	var enum struct {
+		Members []EnumMember `json:"members"`
+	}
+	if err := json.Unmarshal(raw, &enum); err == nil {
+		return "enum", enum.Members
+	}
+	return "enum", nil
 }
 
 // examples normalizes the polymorphic examples field (scalar, array of scalars,
-// or array of arrays) into a flat slice of display strings.
+// or array of arrays) into a flat slice of display strings. Nested arrays are
+// flattened so a value like [["a","b"],["c"]] renders as "a", "b", "c" rather
+// than raw JSON.
 func examples(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
 	}
-	var arr []interface{}
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		out := make([]string, 0, len(arr))
-		for _, v := range arr {
-			out = append(out, scalarString(v))
+	var v interface{}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return flattenExamples(v)
+}
+
+func flattenExamples(v interface{}) []string {
+	switch t := v.(type) {
+	case []interface{}:
+		var out []string
+		for _, e := range t {
+			out = append(out, flattenExamples(e)...)
 		}
 		return out
+	default:
+		return []string{scalarString(t)}
 	}
-	var single interface{}
-	if err := json.Unmarshal(raw, &single); err == nil {
-		return []string{scalarString(single)}
-	}
-	return nil
 }
 
 func scalarString(v interface{}) string {

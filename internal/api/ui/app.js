@@ -62,7 +62,7 @@ async function fetchPage(reset) {
       p.set("limit", PAGE); p.set("offset", state.offset);
       data = await getJSON("/api/v1/semconv/community?" + p);
       state.total = data.total;
-      state.items.push(...data.items.map(normCommunity));
+      state.items.push(...(data.entries || []).map(normCommunity));
       renderFacets(data.facets);
     } else {
       const p = new URLSearchParams();
@@ -199,6 +199,10 @@ function renderCommunityDetail(it) {
   if (it.namespace) rows.push(["Namespace", esc(it.namespace)]);
   if (it.examples && it.examples.length) rows.push(["Examples", it.examples.map((e) => `<code>${esc(e)}</code>`).join(" ")]);
   if (rows.length) html += dl(rows);
+  if (it.enum && it.enum.length) {
+    html += `<h3 style="font-size:13px;color:var(--muted);margin:14px 0 6px">Allowed values</h3><div class="attrs">` +
+      it.enum.map((m) => `<code title="${esc(m.brief || "")}">${esc(m.value)}</code>`).join("") + `</div>`;
+  }
   if (it.note) html += `<p class="note">${esc(it.note)}</p>`;
   if (it.attributes && it.attributes.length) {
     html += `<h3 style="font-size:13px;color:var(--muted);margin:14px 0 6px">Attributes</h3><div class="attrs">` +

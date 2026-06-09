@@ -14,6 +14,8 @@ http://<proxy-host>:8080
 |----------|--------|-------------|
 | `/api/v1/dictionary` | GET | List and filter dictionary entries |
 | `/api/v1/dictionary/:name` | GET | Get single attribute details |
+| `/api/v1/semconv/community` | GET | Search the official OTel semantic-convention registry |
+| `/api/v1/semconv/community/:key` | GET | Get a single registry item by key |
 | `/api/v1/cardinality` | GET | Budget utilization and high-cardinality attributes |
 | `/api/v1/export` | GET | Export as Weaver YAML |
 | `/healthz` | GET | Liveness probe |
@@ -23,6 +25,7 @@ http://<proxy-host>:8080
 ## Sections
 
 - [Dictionary API](dictionary.md) — query and browse discovered conventions
+- [Community SemConv API](community.md) — search the official OTel registry snapshot
 - [Health & Readiness](health.md) — Kubernetes probe endpoints
 - [Metrics](metrics.md) — self-observability Prometheus metrics
 - [Weaver Export](weaver-export.md) — generate Weaver-compatible YAML
@@ -43,4 +46,5 @@ All errors follow this format:
 | `NOT_FOUND` | 404 | Requested resource does not exist |
 | `BAD_REQUEST` | 400 | Invalid query parameters |
 | `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method |
+| `REGISTRY_UNAVAILABLE` | 503 | Embedded semconv registry failed to load |
 | `EXPORT_ERROR` | 500 | Export generation failed |

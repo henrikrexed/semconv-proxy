@@ -31,13 +31,15 @@ type Facets struct {
 	Namespace []FacetCount `json:"namespace"`
 }
 
-// Result is a page of search results plus total count and facet summary.
+// Result is a page of search results plus total count and facet summary. The
+// total/offset/limit/entries envelope mirrors the dictionary endpoint; facets
+// is an additive field the UI uses to render facet counts.
 type Result struct {
-	Total  int    `json:"total"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit"`
-	Items  []Item `json:"items"`
-	Facets Facets `json:"facets"`
+	Total   int    `json:"total"`
+	Offset  int    `json:"offset"`
+	Limit   int    `json:"limit"`
+	Entries []Item `json:"entries"`
+	Facets  Facets `json:"facets"`
 }
 
 // Items returns the full, sorted item slice (read-only; callers must not mutate).
@@ -51,23 +53,24 @@ func (r *Registry) URL() string { return r.url }
 
 // Get returns the item with the given key (e.g. "attribute:http.request.method").
 func (r *Registry) Get(key string) (Item, bool) {
-	for _, it := range r.items {
-		if it.Key == key {
-			return it, true
-		}
+	if idx, ok := r.byKey[key]; ok {
+		return r.items[idx], true
 	}
 	return Item{}, false
 }
 
 // Search applies the query and returns a paginated result with facet counts.
 func (r *Registry) Search(q Query) Result {
-	text := strings.ToLower(strings.TrimSpace(q.Text))
+	// Keyword search is AND-matched across whitespace-separated terms: every
+	// term must appear (as a case-insensitive substring) in the item name or
+	// brief. So "http method" matches "http.request.method".
+	terms := strings.Fields(strings.ToLower(q.Text))
 
 	// First pass: text-only match. Facets are computed over this set so the
 	// counts reflect what each facet selection would narrow to.
 	textMatched := make([]Item, 0, len(r.items))
 	for _, it := range r.items {
-		if matchesText(it, text) {
+		if matchesTerms(it, terms) {
 			textMatched = append(textMatched, it)
 		}
 	}
@@ -91,6 +94,12 @@ func (r *Registry) Search(q Query) Result {
 		filtered = append(filtered, it)
 	}
 
+	// Rank by keyword relevance when a query is present; otherwise preserve the
+	// registry's stable type→name ordering.
+	if len(terms) > 0 {
+		rankItems(filtered, terms)
+	}
+
 	total := len(filtered)
 	limit := q.Limit
 	if limit <= 0 {
@@ -109,20 +118,70 @@ func (r *Registry) Search(q Query) Result {
 	}
 
 	return Result{
-		Total:  total,
-		Offset: offset,
-		Limit:  limit,
-		Items:  filtered[offset:end],
-		Facets: facets,
+		Total:   total,
+		Offset:  offset,
+		Limit:   limit,
+		Entries: filtered[offset:end],
+		Facets:  facets,
 	}
 }
 
-func matchesText(it Item, text string) bool {
-	if text == "" {
+// matchesTerms reports whether every term is a substring of the item's name or
+// brief (AND semantics). An empty term list matches everything.
+func matchesTerms(it Item, terms []string) bool {
+	if len(terms) == 0 {
 		return true
 	}
-	return strings.Contains(strings.ToLower(it.Name), text) ||
-		strings.Contains(strings.ToLower(it.Brief), text)
+	name := strings.ToLower(it.Name)
+	brief := strings.ToLower(it.Brief)
+	for _, t := range terms {
+		if !strings.Contains(name, t) && !strings.Contains(brief, t) {
+			return false
+		}
+	}
+	return true
+}
+
+// rankItems sorts items in place by descending keyword relevance. Name matches
+// outweigh brief matches, a name prefix beats a mid-string match, and an exact
+// single-term name match wins outright. Ties break to the shorter name (more
+// specific) then alphabetically, so ordering is deterministic.
+func rankItems(items []Item, terms []string) {
+	scores := make(map[string]int, len(items))
+	for _, it := range items {
+		scores[it.Key] = rankScore(it, terms)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		si, sj := scores[items[i].Key], scores[items[j].Key]
+		if si != sj {
+			return si > sj
+		}
+		if len(items[i].Name) != len(items[j].Name) {
+			return len(items[i].Name) < len(items[j].Name)
+		}
+		return items[i].Name < items[j].Name
+	})
+}
+
+func rankScore(it Item, terms []string) int {
+	name := strings.ToLower(it.Name)
+	brief := strings.ToLower(it.Brief)
+	score := 0
+	for _, t := range terms {
+		switch {
+		case strings.Contains(name, t):
+			score += 10
+			if strings.HasPrefix(name, t) {
+				score += 5
+			}
+		case strings.Contains(brief, t):
+			score += 2
+		}
+	}
+	if len(terms) == 1 && name == terms[0] {
+		score += 100
+	}
+	return score
 }
 
 func computeFacets(items []Item) Facets {

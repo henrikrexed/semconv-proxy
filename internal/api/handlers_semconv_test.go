@@ -31,7 +31,7 @@ func TestCommunitySearch(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if res.Total == 0 || len(res.Items) == 0 {
+	if res.Total == 0 || len(res.Entries) == 0 {
 		t.Fatal("expected results for http.request.method")
 	}
 	if len(res.Facets.Type) == 0 {
@@ -50,7 +50,7 @@ func TestCommunitySearchTypeFilter(t *testing.T) {
 	if res.Total == 0 {
 		t.Fatal("expected metric results")
 	}
-	for _, it := range res.Items {
+	for _, it := range res.Entries {
 		if it.Type != semconv.ItemMetric {
 			t.Fatalf("non-metric item: %s", it.Name)
 		}

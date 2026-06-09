@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed ui/*
@@ -18,6 +19,15 @@ func uiHandler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// An unmatched /api/ request must not fall through to the SPA shell:
+		// API clients expect JSON, so a mistyped or removed endpoint returns a
+		// JSON 404 rather than a 200 index.html.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+			return
+		}
 		path := r.URL.Path
 		if path == "/" {
 			path = "index.html"

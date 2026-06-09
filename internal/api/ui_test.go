@@ -41,3 +41,20 @@ func TestUIDeepLinkFallback(t *testing.T) {
 		t.Error("expected SPA shell fallback")
 	}
 }
+
+// An unmatched /api/ path must not fall through to the SPA shell: API clients
+// expect a JSON 404, not a 200 index.html.
+func TestUIUnknownAPIPathReturnsJSON404(t *testing.T) {
+	h := uiHandler()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	if strings.Contains(rec.Body.String(), "SemConv Explorer") {
+		t.Error("unknown API path leaked the SPA shell")
+	}
+}
