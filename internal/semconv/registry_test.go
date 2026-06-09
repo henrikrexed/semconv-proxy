@@ -29,6 +29,32 @@ func TestLoadEmbedded(t *testing.T) {
 	}
 }
 
+// Spans must follow the same type:name key convention as the other signals and
+// strip the "span." id prefix from both name and namespace (regression for the
+// display/namespace-facet mismatch).
+func TestSpanKeyAndNameStripPrefix(t *testing.T) {
+	reg := mustLoad(t)
+	var checked int
+	for _, it := range reg.Items() {
+		if it.Type != ItemSpan {
+			continue
+		}
+		checked++
+		if got := it.Key[:5]; got != "span:" {
+			t.Errorf("span key %q does not use the span: prefix", it.Key)
+		}
+		if len(it.Name) >= 5 && it.Name[:5] == "span." {
+			t.Errorf("span name %q still carries the span. id prefix", it.Name)
+		}
+		if it.Namespace == "" || it.Namespace == "span" {
+			t.Errorf("span %q namespace = %q, want the leading segment after span.", it.Key, it.Namespace)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no span items to check")
+	}
+}
+
 func TestAttributesAreDeduplicated(t *testing.T) {
 	reg := mustLoad(t)
 	seen := map[string]bool{}

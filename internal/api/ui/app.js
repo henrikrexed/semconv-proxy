@@ -188,7 +188,7 @@ function renderCommunityDetail(it) {
   if (it.brief) html += `<p>${esc(it.brief)}</p>`;
   if (it.deprecated) {
     const d = it.deprecated;
-    html += `<div class="dep-note"><strong>Deprecated</strong>${d.renamed_to ? ` — renamed to <code>${esc(d.renamed_to)}</code>` : ""}${d.note ? `<br/>${esc(d.note)}` : ""}</div>`;
+    html += `<div class="dep-note"><strong>Deprecated</strong>${d.reason ? ` (${esc(d.reason)})` : ""}${d.renamed_to ? ` — renamed to <code>${esc(d.renamed_to)}</code>` : ""}${d.note ? `<br/>${esc(d.note)}` : ""}</div>`;
   }
   const rows = [];
   if (it.value_type) rows.push(["Value type", `<code>${esc(it.value_type)}</code>`]);

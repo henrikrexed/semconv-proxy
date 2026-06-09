@@ -135,11 +135,12 @@ func parse(data []byte) (*Registry, error) {
 				Attributes: attrNames(g.Attributes),
 			})
 		case "span":
+			name := strings.TrimPrefix(g.ID, "span.")
 			reg.items = append(reg.items, Item{
-				Key:        g.ID,
-				Name:       g.ID,
+				Key:        "span:" + name,
+				Name:       name,
 				Type:       ItemSpan,
-				Namespace:  namespaceOf(strings.TrimPrefix(g.ID, "span.")),
+				Namespace:  namespaceOf(name),
 				Brief:      g.Brief,
 				Note:       g.Note,
 				Stability:  g.Stability,
