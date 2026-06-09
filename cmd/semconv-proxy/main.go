@@ -23,7 +23,6 @@ import (
 	"github.com/henrikrexed/semconv-proxy/internal/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -58,28 +57,20 @@ func main() {
 	cmd.Flags().IntVar(&cfg.PerAttrCap, "per-attr-cap", cfg.PerAttrCap, "per-attribute cardinality cap")
 	cmd.Flags().BoolVar(&cfg.BackendInsecure, "backend-insecure", cfg.BackendInsecure, "use insecure connection for backend")
 
-	_ = viper.BindPFlag("backend-endpoint", cmd.Flags().Lookup("backend-endpoint"))
-	_ = viper.BindPFlag("otlp-http-port", cmd.Flags().Lookup("otlp-http-port"))
-	_ = viper.BindPFlag("otlp-grpc-port", cmd.Flags().Lookup("otlp-grpc-port"))
-	_ = viper.BindPFlag("api-port", cmd.Flags().Lookup("api-port"))
-	_ = viper.BindPFlag("log-level", cmd.Flags().Lookup("log-level"))
-	_ = viper.BindPFlag("data-dir", cmd.Flags().Lookup("data-dir"))
-
-	viper.SetEnvPrefix("SEMCONV_PROXY")
-	viper.AutomaticEnv()
-	_ = viper.BindEnv("backend-endpoint")
-	_ = viper.BindEnv("otlp-http-port")
-	_ = viper.BindEnv("otlp-grpc-port")
-	_ = viper.BindEnv("api-port")
-	_ = viper.BindEnv("log-level")
-	_ = viper.BindEnv("data-dir")
-
+	// Precedence (lowest to highest): defaults < config file < env < explicit flags,
+	// matching docs/getting-started/configuration.md. cobra has already written flag
+	// values (incl. defaults) into cfg; the overlays below re-establish that order.
 	cobra.OnInitialize(func() {
 		if cfg.ConfigFile != "" {
-			viper.SetConfigFile(cfg.ConfigFile)
-			if err := viper.ReadInConfig(); err != nil {
+			if err := config.ApplyFile(cfg, cfg.ConfigFile); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: error reading config file: %v\n", err)
 			}
+		}
+		if err := config.ApplyEnv(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: error applying environment: %v\n", err)
+		}
+		if err := config.ApplyFlags(cfg, cmd.Flags()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: error applying flags: %v\n", err)
 		}
 	})
 
@@ -255,11 +246,13 @@ func run(cmd *cobra.Command, args []string) error {
 			if sig == syscall.SIGHUP {
 				slog.Info("received SIGHUP, reloading config")
 				if cfg.ConfigFile != "" {
-					viper.SetConfigFile(cfg.ConfigFile)
-					if err := viper.ReadInConfig(); err != nil {
+					reloaded := *cfg
+					if err := config.ApplyFile(&reloaded, cfg.ConfigFile); err != nil {
 						slog.Error("failed to reload config", "error", err)
 					} else {
-						applyMutableConfig(logger)
+						_ = config.ApplyEnv(&reloaded)
+						_ = config.ApplyFlags(&reloaded, cmd.Flags())
+						applyMutableConfig(&reloaded)
 					}
 				}
 				continue
@@ -290,8 +283,8 @@ func (l lifecycleFunc) Stop(ctx context.Context) error {
 	return l.stopFn(ctx)
 }
 
-func applyMutableConfig(logger *slog.Logger) {
-	if lvl := viper.GetString("log-level"); lvl != "" && lvl != cfg.LogLevel {
+func applyMutableConfig(reloaded *config.Config) {
+	if lvl := reloaded.LogLevel; lvl != "" && lvl != cfg.LogLevel {
 		var level slog.Level
 		switch lvl {
 		case "debug":
@@ -310,11 +303,11 @@ func applyMutableConfig(logger *slog.Logger) {
 		slog.Info("applied config reload", "log_level", lvl)
 	}
 
-	if d := viper.GetDuration("ttl-stale"); d > 0 && d != cfg.TTLStale {
+	if d := reloaded.TTLStale; d > 0 && d != cfg.TTLStale {
 		slog.Info("applied config reload", "ttl_stale", d)
 		cfg.TTLStale = d
 	}
-	if d := viper.GetDuration("ttl-purge"); d > 0 && d != cfg.TTLPurge {
+	if d := reloaded.TTLPurge; d > 0 && d != cfg.TTLPurge {
 		slog.Info("applied config reload", "ttl_purge", d)
 		cfg.TTLPurge = d
 	}
