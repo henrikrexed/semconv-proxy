@@ -60,6 +60,7 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+	mux.Handle("/", uiHandler())
 
 	var handler http.Handler = mux
 	handler = loggingMiddleware(logger)(handler)
