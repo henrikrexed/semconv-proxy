@@ -86,11 +86,13 @@ nav:
   - API Reference:
       - api/index.md
       - Dictionary API: api/dictionary.md
+      - Community SemConv API: api/community.md
       - Health & Readiness: api/health.md
       - Metrics: api/metrics.md
       - Weaver Export: api/weaver-export.md
   - Operations:
       - operations/index.md
+      - Web UI: operations/web-ui.md
       - Docker: operations/docker.md
       - Kubernetes / Helm: operations/kubernetes.md
       - Monitoring: operations/monitoring.md
@@ -99,3 +101,4 @@ nav:
       - development/index.md
       - Contributing: development/contributing.md
       - Testing: development/testing.md
+      - SemConv Registry Snapshot: development/semconv-registry.md

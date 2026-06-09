@@ -167,9 +167,13 @@ persistence:
   size: 10Gi
 ```
 
-## Ingress
+## Exposing the UI
 
-Expose the API externally (not recommended for production — keep the API on internal network):
+The [SemConv Explorer Web UI](web-ui.md) and the REST API are both served on the
+**api port** (`8080`). Enabling the chart's `ingress` routes the host root (`/`)
+straight to that port, so the UI is reachable at the ingress host. OTLP ingest
+(`4317`/`4318`) is intentionally **not** exposed by this Ingress — keep the
+collector-facing ports on the internal network.
 
 ```yaml
 ingress:
@@ -178,15 +182,26 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: semconv-proxy.example.com
+    - host: semconv.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: semconv-proxy-tls
       hosts:
-        - semconv-proxy.example.com
+        - semconv.example.com
 ```
+
+After `helm upgrade --set ingress.enabled=true ...`, the UI is at
+`https://semconv.example.com/`.
+
+!!! warning
+    The API has no built-in auth. When exposing it externally, put
+    authentication (ingress annotations, an auth proxy, or a service mesh) in
+    front of it, or keep it on an internal-only ingress class.
+
+If your cluster runs the Gateway API instead of an Ingress controller, use the
+`gateway.*` values instead (see the chart `values.yaml`).
 
 ## Upgrading
 

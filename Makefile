@@ -1,6 +1,7 @@
 .PHONY: build test lint integration-test docker coverage clean run \
        security-scan vulncheck gosec trivy-fs sbom docs docs-serve \
-       release snapshot docker-push multiplatform-build
+       release snapshot docker-push multiplatform-build \
+       semconv-registry semconv-registry-check
 
 BINARY := semconv-proxy
 CMD := ./cmd/semconv-proxy
@@ -50,6 +51,16 @@ docker-push:
 
 helm-package:
 	helm package deployments/helm/semconv-proxy/
+
+# Regenerate the embedded semconv snapshot (internal/semconv/data/registry.json)
+# from the pinned semconv release using the pinned Weaver binary. Run after a
+# version bump, then commit the result. See docs/development/semconv-registry.md.
+semconv-registry:
+	./scripts/resolve-registry.sh
+
+# CI guard: fail if the committed snapshot drifts from a fresh pinned resolve.
+semconv-registry-check:
+	./scripts/resolve-registry.sh --check
 
 security-scan: vulncheck gosec trivy-fs
 

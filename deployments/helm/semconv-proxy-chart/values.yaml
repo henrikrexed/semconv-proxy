@@ -81,6 +81,25 @@ persistence:
   accessMode: ReadWriteOnce
   storageClassName: ""
 
+# Legacy Ingress exposing the Web UI + REST API on the api port (8080).
+# The SemConv Explorer UI is served at "/" on the api port, so this routes the
+# ingress host root straight to it. OTLP ingest (4317/4318) is intentionally NOT
+# exposed here. Disabled by default; prefer the Gateway API below when available.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: semconv.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # tls:
+  #   - secretName: semconv-proxy-tls
+  #     hosts:
+  #       - semconv.example.com
+
 # Gateway API ingress (preferred over legacy Ingress).
 # Requires the Gateway API CRDs and an installed Gateway controller in the cluster.
 gateway:
