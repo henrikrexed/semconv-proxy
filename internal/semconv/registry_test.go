@@ -1,0 +1,271 @@
+package semconv
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestLoadEmbedded(t *testing.T) {
+	reg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reg.Len() == 0 {
+		t.Fatal("expected non-empty registry")
+	}
+
+	// All five signal types should be represented in the official registry.
+	counts := map[ItemType]int{}
+	for _, it := range reg.Items() {
+		counts[it.Type]++
+		if it.Name == "" || it.Key == "" {
+			t.Fatalf("item with empty name/key: %+v", it)
+		}
+	}
+	for _, typ := range []ItemType{ItemAttribute, ItemMetric, ItemSpan, ItemEvent, ItemEntity} {
+		if counts[typ] == 0 {
+			t.Errorf("expected at least one %s item", typ)
+		}
+	}
+}
+
+// Spans must follow the same type:name key convention as the other signals and
+// strip the "span." id prefix from both name and namespace (regression for the
+// display/namespace-facet mismatch).
+func TestSpanKeyAndNameStripPrefix(t *testing.T) {
+	reg := mustLoad(t)
+	var checked int
+	for _, it := range reg.Items() {
+		if it.Type != ItemSpan {
+			continue
+		}
+		checked++
+		if got := it.Key[:5]; got != "span:" {
+			t.Errorf("span key %q does not use the span: prefix", it.Key)
+		}
+		if len(it.Name) >= 5 && it.Name[:5] == "span." {
+			t.Errorf("span name %q still carries the span. id prefix", it.Name)
+		}
+		if it.Namespace == "" || it.Namespace == "span" {
+			t.Errorf("span %q namespace = %q, want the leading segment after span.", it.Key, it.Namespace)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no span items to check")
+	}
+}
+
+func TestAttributesAreDeduplicated(t *testing.T) {
+	reg := mustLoad(t)
+	seen := map[string]bool{}
+	for _, it := range reg.Items() {
+		if it.Type != ItemAttribute {
+			continue
+		}
+		if seen[it.Name] {
+			t.Fatalf("duplicate attribute item: %s", it.Name)
+		}
+		seen[it.Name] = true
+	}
+}
+
+func TestKnownAttributePresent(t *testing.T) {
+	reg := mustLoad(t)
+	it, ok := reg.Get("attribute:http.request.method")
+	if !ok {
+		t.Fatal("expected http.request.method attribute")
+	}
+	if it.Namespace != "http" {
+		t.Errorf("namespace = %q, want http", it.Namespace)
+	}
+	if it.ValueType == "" {
+		t.Error("expected a value type")
+	}
+	if it.Stability != "stable" {
+		t.Errorf("stability = %q, want stable", it.Stability)
+	}
+}
+
+func TestParseNormalization(t *testing.T) {
+	const data = `{
+	  "registry_url": "test://reg",
+	  "groups": [
+	    {
+	      "id": "attr.http",
+	      "type": "attribute_group",
+	      "attributes": [
+	        {
+	          "name": "http.request.method",
+	          "type": {"members": [{"id": "get", "value": "GET"}]},
+	          "brief": "HTTP method",
+	          "examples": ["GET", "POST"],
+	          "requirement_level": {"conditionally_required": "always"},
+	          "stability": "stable"
+	        },
+	        {
+	          "name": "net.peer.port",
+	          "type": "int",
+	          "examples": 8080,
+	          "requirement_level": "recommended",
+	          "stability": "development",
+	          "deprecated": {"reason": "renamed", "renamed_to": "server.port"}
+	        }
+	      ]
+	    },
+	    {
+	      "id": "metric.http.server.duration",
+	      "type": "metric",
+	      "metric_name": "http.server.request.duration",
+	      "instrument": "histogram",
+	      "unit": "s",
+	      "stability": "stable",
+	      "brief": "Duration",
+	      "attributes": [{"name": "http.request.method", "type": "string"}]
+	    }
+	  ]
+	}`
+	reg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	method, ok := reg.Get("attribute:http.request.method")
+	if !ok {
+		t.Fatal("missing http.request.method")
+	}
+	if method.ValueType != "enum" {
+		t.Errorf("enum type = %q, want enum", method.ValueType)
+	}
+	if method.Requirement != "conditionally_required" {
+		t.Errorf("requirement = %q", method.Requirement)
+	}
+	if len(method.Examples) != 2 || method.Examples[0] != "GET" {
+		t.Errorf("examples = %v", method.Examples)
+	}
+
+	port, _ := reg.Get("attribute:net.peer.port")
+	if port.ValueType != "int" {
+		t.Errorf("int type = %q", port.ValueType)
+	}
+	if port.Requirement != "recommended" {
+		t.Errorf("requirement = %q", port.Requirement)
+	}
+	if len(port.Examples) != 1 || port.Examples[0] != "8080" {
+		t.Errorf("scalar example = %v", port.Examples)
+	}
+	if port.Deprecated == nil || port.Deprecated.RenamedTo != "server.port" {
+		t.Errorf("deprecated = %+v", port.Deprecated)
+	}
+
+	metric, ok := reg.Get("metric:http.server.request.duration")
+	if !ok {
+		t.Fatal("missing metric")
+	}
+	if metric.Type != ItemMetric || metric.Unit != "s" || metric.Instrument != "histogram" {
+		t.Errorf("metric = %+v", metric)
+	}
+	if metric.Namespace != "http" {
+		t.Errorf("metric namespace = %q", metric.Namespace)
+	}
+}
+
+// Enum-typed attributes must retain their members, not collapse to the bare
+// string "enum", so the UI can list allowed values.
+func TestEnumMembersPreserved(t *testing.T) {
+	const data = `{
+	  "registry_url": "test://reg",
+	  "groups": [
+	    {
+	      "id": "attr.http",
+	      "type": "attribute_group",
+	      "attributes": [
+	        {
+	          "name": "http.request.method",
+	          "type": {"members": [
+	            {"id": "get", "value": "GET", "brief": "GET method", "stability": "stable"},
+	            {"id": "post", "value": "POST"}
+	          ]},
+	          "brief": "HTTP method"
+	        }
+	      ]
+	    }
+	  ]
+	}`
+	reg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	it, ok := reg.Get("attribute:http.request.method")
+	if !ok {
+		t.Fatal("missing http.request.method")
+	}
+	if it.ValueType != "enum" {
+		t.Errorf("value type = %q, want enum", it.ValueType)
+	}
+	if len(it.Enum) != 2 {
+		t.Fatalf("enum members = %d, want 2", len(it.Enum))
+	}
+	if it.Enum[0].Value != "GET" || it.Enum[0].ID != "get" || it.Enum[0].Stability != "stable" {
+		t.Errorf("first member = %+v", it.Enum[0])
+	}
+	if it.Enum[1].Value != "POST" {
+		t.Errorf("second member value = %q", it.Enum[1].Value)
+	}
+}
+
+// Examples given as arrays-of-arrays must flatten to a flat string slice rather
+// than rendering raw JSON.
+func TestNestedExamplesFlatten(t *testing.T) {
+	const data = `{
+	  "registry_url": "test://reg",
+	  "groups": [
+	    {
+	      "id": "attr.x",
+	      "type": "attribute_group",
+	      "attributes": [
+	        {"name": "http.request.header", "type": "string", "examples": [["a", "b"], ["c"]]}
+	      ]
+	    }
+	  ]
+	}`
+	reg, err := parse([]byte(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	it, ok := reg.Get("attribute:http.request.header")
+	if !ok {
+		t.Fatal("missing attribute")
+	}
+	want := []string{"a", "b", "c"}
+	if len(it.Examples) != len(want) {
+		t.Fatalf("examples = %v, want %v", it.Examples, want)
+	}
+	for i, e := range want {
+		if it.Examples[i] != e {
+			t.Errorf("examples[%d] = %q, want %q", i, it.Examples[i], e)
+		}
+	}
+}
+
+// Ensure Item marshals cleanly for the API layer (no unexpected panics on the
+// polymorphic fields).
+func TestItemJSONRoundTrip(t *testing.T) {
+	reg := mustLoad(t)
+	b, err := json.Marshal(reg.Items()[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back Item
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+}
+
+func mustLoad(t *testing.T) *Registry {
+	t.Helper()
+	reg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return reg
+}

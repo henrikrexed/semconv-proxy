@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SemConv Explorer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◎</span>
+      <h1>SemConv Explorer</h1>
+    </div>
+    <div class="scope" role="tablist" aria-label="Data source">
+      <button id="scope-community" class="scope-btn active" role="tab" aria-selected="true" data-scope="community">Community</button>
+      <button id="scope-mine" class="scope-btn" role="tab" aria-selected="false" data-scope="mine">My&nbsp;Telemetry</button>
+      <button id="scope-compare" class="scope-btn" role="tab" aria-selected="false" data-scope="compare">Compare</button>
+    </div>
+    <form id="search-form" class="search" role="search">
+      <input id="q" type="search" placeholder="Search conventions…" autocomplete="off" aria-label="Search" />
+      <button id="facets-toggle" type="button" class="icon-btn" aria-expanded="false" aria-controls="facets" title="Filters">⚙</button>
+    </form>
+  </header>
+
+  <main class="layout">
+    <aside id="facets" class="facets" aria-label="Filters" hidden>
+      <div class="facet-group" data-dim="type">
+        <h2>Signal type</h2>
+        <div class="facet-list"></div>
+      </div>
+      <div class="facet-group" data-dim="stability">
+        <h2>Stability</h2>
+        <div class="facet-list"></div>
+      </div>
+      <div class="facet-group" data-dim="namespace">
+        <h2>Namespace</h2>
+        <div class="facet-list"></div>
+      </div>
+      <button id="facets-clear" type="button" class="link-btn">Clear filters</button>
+    </aside>
+
+    <section class="results" aria-live="polite">
+      <div id="compare-buckets" class="compare-buckets" hidden></div>
+      <div id="results-meta" class="results-meta"></div>
+      <ul id="results-list" class="results-list"></ul>
+      <div id="results-more" class="results-more" hidden>
+        <button id="load-more" type="button">Load more</button>
+      </div>
+    </section>
+
+    <section id="detail" class="detail" hidden aria-label="Item detail">
+      <button id="detail-close" class="icon-btn detail-close" title="Close">✕</button>
+      <div id="detail-body"></div>
+    </section>
+  </main>
+
+  <div id="status" class="status" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>

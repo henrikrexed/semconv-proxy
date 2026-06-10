@@ -20,10 +20,13 @@ WARNING: config.backendEndpoint is empty. The proxy will refuse to start.
 
 Quick checks:
 
-  # Forward the API locally
+  # Forward the API + Web UI locally
   kubectl port-forward -n {{ .Release.Namespace }} \
     svc/{{ include "semconv-proxy-chart.fullname" . }} \
     8080:{{ .Values.service.ports.api }}
+
+  # SemConv Explorer Web UI
+  #   open http://localhost:8080/
 
   # Health
   curl -fsS http://localhost:8080/healthz
@@ -34,6 +37,14 @@ Quick checks:
   # Export Weaver-compatible YAML
   curl -fsS http://localhost:8080/api/v1/weaver/export > semconv.yaml
 
+{{- if .Values.ingress.enabled }}
+
+Ingress (Web UI + API on the api port):
+  kubectl get ingress -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/
+{{- end }}
+{{- end }}
 {{- if .Values.gateway.enabled }}
 
 Gateway API:

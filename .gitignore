@@ -32,6 +32,9 @@ Thumbs.db
 /build/
 /site/
 
+# Cached pinned Weaver binary (scripts/resolve-registry.sh)
+/.weaver-bin/
+
 # Security scan results
 *.sarif
 sbom-*.spdx.json
