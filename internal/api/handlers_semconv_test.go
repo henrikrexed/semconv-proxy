@@ -98,6 +98,38 @@ func TestCommunityEntryNotFound(t *testing.T) {
 	}
 }
 
+func TestCommunityEntryMethodNotAllowed(t *testing.T) {
+	s := newSemconvServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/semconv/community/attribute:http.request.method", nil)
+	rec := httptest.NewRecorder()
+	s.handleCommunityEntry(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestCommunityEntryRegistryUnavailable(t *testing.T) {
+	s := &Server{} // no registry loaded
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/semconv/community/attribute:http.request.method", nil)
+	rec := httptest.NewRecorder()
+	s.handleCommunityEntry(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+// TestCommunityEntryEmptyKey exercises the bare-prefix path (no item key),
+// which the router can hand off when the trailing segment is empty.
+func TestCommunityEntryEmptyKey(t *testing.T) {
+	s := newSemconvServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/semconv/community/", nil)
+	rec := httptest.NewRecorder()
+	s.handleCommunityEntry(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
 func TestCommunityRegistryUnavailable(t *testing.T) {
 	s := &Server{} // no registry loaded
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/semconv/community", nil)

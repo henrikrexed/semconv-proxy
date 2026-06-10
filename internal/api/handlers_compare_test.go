@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/henrikrexed/semconv-proxy/internal/cardinality"
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/semconv"
 )
@@ -171,6 +172,19 @@ func TestCompareLimitCapsEntriesNotCounts(t *testing.T) {
 	}
 }
 
+// errorCode decodes a writeError body ({"error","code"}) and returns its code.
+func errorCode(t *testing.T, body []byte) string {
+	t.Helper()
+	var e struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &e); err != nil {
+		t.Fatalf("decode error body: %v (raw=%s)", err, body)
+	}
+	return e.Code
+}
+
 func TestCompareRegistryUnavailable(t *testing.T) {
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/semconv/compare", nil)
@@ -178,6 +192,72 @@ func TestCompareRegistryUnavailable(t *testing.T) {
 	s.handleCompare(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
+	}
+	if code := errorCode(t, rec.Body.Bytes()); code != "REGISTRY_UNAVAILABLE" {
+		t.Errorf("code = %q, want REGISTRY_UNAVAILABLE", code)
+	}
+}
+
+// TestCompareDictionaryUnavailable exercises the dict-nil branch, which the
+// registry-unavailable test never reaches (the semconv check returns first).
+func TestCompareDictionaryUnavailable(t *testing.T) {
+	reg, err := semconv.Load()
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	s := &Server{semconv: reg} // semconv present, dict nil
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/semconv/compare", nil)
+	rec := httptest.NewRecorder()
+	s.handleCompare(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if code := errorCode(t, rec.Body.Bytes()); code != "DICTIONARY_UNAVAILABLE" {
+		t.Errorf("code = %q, want DICTIONARY_UNAVAILABLE", code)
+	}
+}
+
+func TestCompareLimitClampedToMax(t *testing.T) {
+	s := newCompareServer(t, []*dictionary.AttributeEntry{
+		{Name: "app.build_id", Type: "string"},
+	})
+	res := doCompare(t, s, "?limit=5000")
+	if res.Limit != 1000 {
+		t.Errorf("limit = %d, want 1000 (clamped to max)", res.Limit)
+	}
+}
+
+// TestCompareCardinalityFromTracker verifies the response surfaces the live
+// tracker cardinality, overriding the static value stored on the dict entry.
+func TestCompareCardinalityFromTracker(t *testing.T) {
+	s := newCompareServer(t, []*dictionary.AttributeEntry{
+		{Name: "app.build_id", Type: "string", Cardinality: 1},
+	})
+	tracker := cardinality.NewTracker(1000, 100, slog.Default())
+	for _, v := range []string{"v1", "v2", "v3"} {
+		tracker.TrackValue("app.build_id", v)
+	}
+	s.tracker = tracker
+
+	res := doCompare(t, s, "")
+	it, ok := findItem(res.Buckets[classMatched], "app.build_id")
+	if !ok {
+		t.Fatal("app.build_id not in matched bucket")
+	}
+	if it.Cardinality != 3 {
+		t.Errorf("cardinality = %d, want 3 (from tracker, not dict entry's 1)", it.Cardinality)
+	}
+}
+
+func TestCompareInvalidLimitFallsToDefault(t *testing.T) {
+	s := newCompareServer(t, []*dictionary.AttributeEntry{
+		{Name: "app.build_id", Type: "string"},
+	})
+	for _, q := range []string{"?limit=abc", "?limit=-5"} {
+		res := doCompare(t, s, q)
+		if res.Limit != 200 {
+			t.Errorf("limit for %q = %d, want 200 (default)", q, res.Limit)
+		}
 	}
 }
 
@@ -188,6 +268,9 @@ func TestCompareMethodNotAllowed(t *testing.T) {
 	s.handleCompare(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)
+	}
+	if code := errorCode(t, rec.Body.Bytes()); code != "METHOD_NOT_ALLOWED" {
+		t.Errorf("code = %q, want METHOD_NOT_ALLOWED", code)
 	}
 }
 
