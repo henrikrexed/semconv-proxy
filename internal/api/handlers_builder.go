@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
 	"github.com/henrikrexed/semconv-proxy/internal/export"
+	"github.com/henrikrexed/semconv-proxy/internal/semconv"
 )
 
 // isVersionedSchemaURL enforces §10.1: schema_url MUST be a versioned OTel schema
@@ -77,4 +79,124 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"files": files,
 	})
+}
+
+// seedAttribute is one discovered attribute shaped for the Definitions table. It
+// carries both the editable authoring fields (pre-filled from the observed
+// telemetry and, when matched, the official registry) and the community
+// cross-reference state that drives the table's status chip.
+type seedAttribute struct {
+	ID           string                  `json:"id"`
+	Namespace    string                  `json:"namespace"`
+	Type         string                  `json:"type"` // pre-fill = observed dictionary type
+	ObservedType string                  `json:"observed_type"`
+	CrossRef     string                  `json:"cross_ref"` // matched | type-mismatch | deprecated | not-in-registry
+	SignalTypes  []dictionary.SignalType `json:"signal_types"`
+	Cardinality  int64                   `json:"cardinality"`
+	RegistryKey  string                  `json:"registry_key,omitempty"`
+	RegistryType string                  `json:"registry_type,omitempty"`
+	// Suggested enrichment, surfaced from the registry when the attribute matched
+	// so the user can accept the official wording instead of typing it.
+	Brief            string               `json:"brief,omitempty"`
+	Stability        string               `json:"stability,omitempty"`
+	RequirementLevel string               `json:"requirement_level,omitempty"`
+	Examples         []string             `json:"examples,omitempty"`
+	Deprecation      *semconv.Deprecation `json:"deprecation,omitempty"`
+}
+
+// handleBuilderSeed seeds the Definitions-table state from the live dictionary,
+// cross-referenced against the embedded official registry.
+//
+//	GET /api/v1/builder/seed?q=&limit=
+//
+// Each observed attribute is returned with its type pre-filled from the observed
+// telemetry type and tagged with its community cross-ref bucket (matched /
+// type-mismatch / deprecated / not-in-registry), reusing the Phase 1 compare
+// classification. For matched attributes, the official brief/stability/
+// requirement-level/examples are surfaced as suggested enrichment.
+func (s *Server) handleBuilderSeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
+		return
+	}
+	if s.semconv == nil {
+		writeError(w, http.StatusServiceUnavailable, "semconv registry unavailable", "REGISTRY_UNAVAILABLE")
+		return
+	}
+	if s.dict == nil {
+		writeError(w, http.StatusServiceUnavailable, "dictionary unavailable", "DICTIONARY_UNAVAILABLE")
+		return
+	}
+
+	q := r.URL.Query()
+	limit := parseIntDefault(q.Get("limit"), 500, 2000)
+
+	entries := s.dict.List(&dictionary.Filter{Pattern: q.Get("q")})
+
+	attrs := make([]seedAttribute, 0, len(entries))
+	for _, e := range entries {
+		if len(attrs) >= limit {
+			break
+		}
+		class, regItem, found := s.classifyAttribute(e)
+
+		card := e.Cardinality
+		if s.tracker != nil {
+			card = s.tracker.Cardinality(e.Name)
+		}
+
+		a := seedAttribute{
+			ID:           e.Name,
+			Namespace:    namespaceFromAttr(e.Name),
+			Type:         firstNonEmptyStr(e.Type, defaultAttributeTypeSeed),
+			ObservedType: e.Type,
+			CrossRef:     class,
+			SignalTypes:  e.SignalTypes,
+			Cardinality:  card,
+		}
+		if found {
+			a.RegistryKey = regItem.Key
+			a.RegistryType = regItem.ValueType
+			a.Brief = regItem.Brief
+			a.Stability = regItem.Stability
+			a.RequirementLevel = regItem.Requirement
+			a.Examples = regItem.Examples
+			a.Deprecation = regItem.Deprecated
+		}
+		attrs = append(attrs, a)
+	}
+
+	var defaultDep *export.DependencySpec
+	if s.semconv != nil {
+		dep := export.DefaultOTelDependency(s.semconv.URL())
+		defaultDep = &dep
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total":              len(entries),
+		"limit":              limit,
+		"attributes":         attrs,
+		"default_dependency": defaultDep,
+	})
+}
+
+const defaultAttributeTypeSeed = "string"
+
+// namespaceFromAttr returns the leading dotted segment of an attribute name as
+// its suggested namespace (e.g. "http.request.method" -> "http"), falling back
+// to "custom" for un-namespaced names.
+func namespaceFromAttr(name string) string {
+	if i := strings.IndexByte(name, '.'); i >= 0 && i > 0 {
+		return name[:i]
+	}
+	return "custom"
+}
+
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
