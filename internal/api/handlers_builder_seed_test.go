@@ -79,6 +79,65 @@ func TestBuilderSeedMatched(t *testing.T) {
 	}
 }
 
+// A matched attribute must surface the official registry enrichment — brief,
+// stability, requirement level, and examples — so the table can offer the
+// canonical wording instead of making the user retype it (AC §4.2/§5).
+func TestBuilderSeedMatchedSurfacesEnrichment(t *testing.T) {
+	s := newTestServer(t)
+	res := decodeSeed(t, getSeed(t, s, ""))
+
+	a, ok := findSeed(res.Attributes, "http.request.method")
+	if !ok {
+		t.Fatalf("expected http.request.method in seed, got %+v", res.Attributes)
+	}
+	if a.Brief == "" {
+		t.Errorf("expected official brief surfaced for matched attr")
+	}
+	if a.Stability == "" {
+		t.Errorf("expected official stability surfaced for matched attr")
+	}
+	if a.RequirementLevel == "" {
+		t.Errorf("expected official requirement_level surfaced for matched attr")
+	}
+	if len(a.Examples) == 0 {
+		t.Errorf("expected official examples surfaced for matched attr")
+	}
+	if a.Deprecation != nil {
+		t.Errorf("matched (non-deprecated) attr should carry no deprecation, got %+v", a.Deprecation)
+	}
+}
+
+// A deprecated registry attribute must land in the deprecated bucket and carry
+// its deprecation metadata, distinct from the matched/type-mismatch buckets
+// (AC §4.2 lists deprecated as one of the four cross-ref states).
+func TestBuilderSeedDeprecated(t *testing.T) {
+	s := newTestServer(t)
+	// az.service_request_id is deprecated in the embedded registry.
+	s.dict.Upsert(&dictionary.AttributeEntry{
+		Name:        "az.service_request_id",
+		Type:        "string",
+		SignalTypes: []dictionary.SignalType{dictionary.SignalTypeLog},
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Status:      dictionary.StatusActive,
+	})
+
+	res := decodeSeed(t, getSeed(t, s, "?q=az.service_request_id"))
+	a, ok := findSeed(res.Attributes, "az.service_request_id")
+	if !ok {
+		t.Fatalf("expected az.service_request_id in seed, got %+v", res.Attributes)
+	}
+	if a.CrossRef != classDeprecated {
+		t.Errorf("cross_ref = %q, want %q", a.CrossRef, classDeprecated)
+	}
+	if a.Deprecation == nil {
+		t.Errorf("expected deprecation metadata surfaced for a deprecated attr")
+	}
+	if a.RegistryKey == "" {
+		t.Errorf("expected registry_key populated for a deprecated (known) attr")
+	}
+}
+
 // An attribute the registry has never heard of must land in not-in-registry
 // with no suggested enrichment, while its type is still pre-filled from the
 // observed telemetry.
