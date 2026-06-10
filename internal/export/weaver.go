@@ -165,6 +165,11 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 	if len(deps) == 0 && defaultDep != nil {
 		deps = []DependencySpec{*defaultDep}
 	}
+	// Weaver v0.23 manifests accept at most one dependency (weaver#604). Reject
+	// more rather than emitting a manifest weaver will refuse (§10.1, L2).
+	if len(deps) > 1 {
+		return nil, fmt.Errorf("export: weaver v0.23 manifest allows at most one dependency (weaver#604), got %d", len(deps))
+	}
 	for _, d := range deps {
 		man.Dependencies = append(man.Dependencies, genDep{SchemaURL: d.SchemaURL, RegistryPath: d.RegistryPath})
 	}
@@ -190,14 +195,22 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 
 		grp, ok := byNS[ns]
 		if !ok {
-			grp = &genGroup{
-				ID:        firstNonEmpty(g.ID, ns),
-				Type:      firstNonEmpty(g.Type, "attribute_group"),
-				Brief:     firstNonEmpty(g.Brief, fmt.Sprintf("Attributes for the %s namespace.", ns)),
-				Stability: firstNonEmpty(g.Stability, defaultStability),
-			}
+			grp = &genGroup{ID: firstNonEmpty(g.ID, ns)}
 			byNS[ns] = grp
 			order = append(order, ns)
+		}
+
+		// Merge metadata across inputs sharing a namespace so a later group's
+		// fields are not silently dropped (L1). Structural fields take the first
+		// non-empty value; distinct briefs are concatenated.
+		grp.Type = firstNonEmpty(grp.Type, g.Type)
+		grp.Stability = firstNonEmpty(grp.Stability, g.Stability)
+		if g.Brief != "" && !strings.Contains(grp.Brief, g.Brief) {
+			if grp.Brief == "" {
+				grp.Brief = g.Brief
+			} else {
+				grp.Brief += " " + g.Brief
+			}
 		}
 
 		for _, a := range g.Attributes {
@@ -214,7 +227,13 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 	}
 
 	for _, ns := range order {
-		data, err := yaml.Marshal(genGroupFile{Groups: []genGroup{*byNS[ns]}})
+		grp := byNS[ns]
+		grp.Type = firstNonEmpty(grp.Type, "attribute_group")
+		grp.Stability = firstNonEmpty(grp.Stability, defaultStability)
+		if grp.Brief == "" {
+			grp.Brief = fmt.Sprintf("Attributes for the %s namespace.", ns)
+		}
+		data, err := yaml.Marshal(genGroupFile{Groups: []genGroup{*grp}})
 		if err != nil {
 			return nil, fmt.Errorf("export: marshal group %q: %w", ns, err)
 		}

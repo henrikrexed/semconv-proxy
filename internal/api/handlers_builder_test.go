@@ -58,6 +58,33 @@ func TestBuilderGenerateMissingSchemaURL(t *testing.T) {
 	}
 }
 
+func TestBuilderGenerateUnversionedSchemaURL(t *testing.T) {
+	s := newTestServer(t)
+	// No version segment -> rejected (L3, §10.1).
+	w := postGenerate(t, s, `{"manifest": {"schema_url": "https://acme.com/schemas"}, "groups": []}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestBuilderGenerateTooManyDependencies(t *testing.T) {
+	s := newTestServer(t)
+	body := `{
+		"manifest": {
+			"schema_url": "https://acme.com/schemas/0.1.0",
+			"dependencies": [
+				{"schema_url": "https://opentelemetry.io/schemas/1.41.1"},
+				{"schema_url": "https://example.com/schemas/2.0.0"}
+			]
+		},
+		"groups": []
+	}`
+	w := postGenerate(t, s, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestBuilderGenerateBadJSON(t *testing.T) {
 	s := newTestServer(t)
 	w := postGenerate(t, s, `{not json`)

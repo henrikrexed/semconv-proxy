@@ -222,7 +222,9 @@ func TestGenerateFieldOverridesVsDefaults(t *testing.T) {
 	}
 
 	g0 := httpFile.Groups[0]
-	if g0.Brief != "HTTP attributes." || g0.Stability != "stable" || g0.Type != "attribute_group" {
+	// Both http inputs set a brief; the merge concatenates them rather than
+	// silently dropping the second (L1).
+	if g0.Brief != "HTTP attributes. More HTTP attributes." || g0.Stability != "stable" || g0.Type != "attribute_group" {
 		t.Errorf("group override/default mismatch: %+v", g0)
 	}
 
@@ -284,6 +286,53 @@ func TestGenerateRoundTrip(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestGenerateMergePreservesMetadata guards L1: when same-namespace inputs carry
+// metadata, the merge must not silently drop a later group's fields. Stability
+// takes the first non-empty; briefs are concatenated; defaults fill the rest.
+func TestGenerateMergePreservesMetadata(t *testing.T) {
+	e := NewWeaverExporter()
+	files, err := e.Generate(BuilderState{
+		Manifest: ManifestSpec{SchemaURL: "https://acme.com/schemas/0.1.0"},
+		Groups: []GroupInput{
+			{Namespace: "http", Attributes: []AttributeInput{{ID: "http.route"}}},                  // no metadata
+			{Namespace: "http", Brief: "Late brief.", Stability: "stable", Type: "attribute_group"}, // metadata only
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+
+	var f genGroupFile
+	if err := yaml.Unmarshal([]byte(files["groups/http.yaml"]), &f); err != nil {
+		t.Fatalf("parse http file: %v", err)
+	}
+	g := f.Groups[0]
+	if !strings.Contains(g.Brief, "Late brief.") {
+		t.Errorf("later group brief dropped on merge: %q", g.Brief)
+	}
+	if g.Stability != "stable" {
+		t.Errorf("later group stability dropped on merge: %q", g.Stability)
+	}
+}
+
+// TestGenerateRejectsMultipleDependencies guards L2: weaver v0.23 manifests
+// accept at most one dependency (weaver#604).
+func TestGenerateRejectsMultipleDependencies(t *testing.T) {
+	e := NewWeaverExporter()
+	_, err := e.Generate(BuilderState{
+		Manifest: ManifestSpec{
+			SchemaURL: "https://acme.com/schemas/0.1.0",
+			Dependencies: []DependencySpec{
+				{SchemaURL: "https://opentelemetry.io/schemas/1.41.1"},
+				{SchemaURL: "https://example.com/schemas/2.0.0"},
+			},
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error for >1 dependency, got nil")
 	}
 }
 
