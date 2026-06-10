@@ -224,6 +224,9 @@ html, body {
 .bld-cat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bld-cat-card p { margin: 0; flex: 1; font-size: 12px; }
 .bld-cat-card .bld-btn { align-self: flex-start; }
+.bld-cfg { display: flex; flex-direction: column; gap: 10px; }
+.bld-cfg h4 { margin: 14px 0 0; font-size: 13px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.bld-cfg .bld-field { max-width: 480px; }
 .bld-check-list { display: flex; flex-direction: column; gap: 12px; }
 .bld-check-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--panel-2); }
 .bld-check-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }

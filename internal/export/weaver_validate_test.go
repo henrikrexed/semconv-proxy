@@ -136,3 +136,70 @@ func TestGeneratePolicyRegoLoadsUnderWeaver(t *testing.T) {
 		t.Errorf("weaver did not report checking any policies; output:\n%s", combined)
 	}
 }
+
+// TestGenerateWeaverConfigAcceptedByLiveCheck is the S4 acceptance check: the
+// emitted `.weaver.toml` parses and is accepted by `weaver registry live-check
+// --config` (v0.23), and its defaulted policy.paths correctly references the
+// generated policies dir. weaver runs with cwd = registry root so the relative
+// policy path resolves. The telemetry-ingest EOF (empty /dev/null input) is the
+// expected terminal state and is ignored — we assert only on config acceptance.
+func TestGenerateWeaverConfigAcceptedByLiveCheck(t *testing.T) {
+	bin := findWeaverBinary()
+	if bin == "" {
+		t.Skip("bundled weaver binary not found; skipping live-check config acceptance")
+	}
+
+	state := sampleState()
+	state.Policies = []PolicyInput{{TemplateID: "stability_required"}}
+	state.Config = &ConfigSpec{
+		FindingFilters: []FindingFilter{
+			{Exclude: []string{"missing_attribute"}, MinLevel: "improvement", SignalType: "trace"},
+		},
+	}
+
+	files, err := NewWeaverExporter().Generate(state, nil)
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+	if _, ok := files[".weaver.toml"]; !ok {
+		t.Fatal(".weaver.toml was not generated")
+	}
+
+	regDir := t.TempDir()
+	for path, content := range files {
+		full := filepath.Join(regDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	cmd := exec.Command(bin, "registry", "live-check", "-r", ".", "--config", ".weaver.toml", "--input-source", "/dev/null")
+	cmd.Dir = regDir // policy.paths "policies" resolves relative to cwd
+	out, runErr := cmd.CombinedOutput()
+	combined := string(out)
+	t.Logf("weaver live-check exit=%v output:\n%s", runErr, combined)
+
+	// Acceptance: config discovered & parsed.
+	if !strings.Contains(combined, "Found config:") {
+		t.Errorf("weaver did not report finding our config; output:\n%s", combined)
+	}
+	// The defaulted policy.paths must resolve to the generated policies dir.
+	if strings.Contains(combined, "Invalid policy path") {
+		t.Errorf("policy.paths did not resolve to the generated policies dir; output:\n%s", combined)
+	}
+	// Config-parse / schema failures must never appear.
+	for _, bad := range []string{
+		"unclosed table",
+		"expected `]`",
+		"invalid type",
+		"unknown field",
+		"Failed to parse config",
+	} {
+		if strings.Contains(combined, bad) {
+			t.Errorf("weaver rejected the emitted config (%q); output:\n%s", bad, combined)
+		}
+	}
+}

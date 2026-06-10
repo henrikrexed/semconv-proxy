@@ -63,6 +63,14 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "manifest.dependencies allows at most one entry (weaver v0.23, weaver#604)", "BAD_REQUEST")
 		return
 	}
+	if state.Config != nil {
+		for _, f := range state.Config.FindingFilters {
+			if f.MinLevel != "" && !export.ValidFindingLevel(f.MinLevel) {
+				writeError(w, http.StatusBadRequest, "config.finding_filters min_level must be one of information|improvement|violation", "BAD_REQUEST")
+				return
+			}
+		}
+	}
 
 	var defaultDep *export.DependencySpec
 	if s.semconv != nil {
@@ -151,6 +159,11 @@ func (s *Server) handleBuilderSeed(w http.ResponseWriter, r *http.Request) {
 
 	entries := s.dict.List(&dictionary.Filter{Pattern: q.Get("q")})
 
+	// Collect the distinct signal types observed across the full result set
+	// (before the row limit) so the Config tab's finding-filter signal_type
+	// dropdown is sourced from the user's known signals (S4 acceptance).
+	knownSignals := distinctSignalTypes(entries)
+
 	attrs := make([]seedAttribute, 0, len(entries))
 	for _, e := range entries {
 		if len(attrs) >= limit {
@@ -195,7 +208,24 @@ func (s *Server) handleBuilderSeed(w http.ResponseWriter, r *http.Request) {
 		"limit":              limit,
 		"attributes":         attrs,
 		"default_dependency": defaultDep,
+		"known_signal_types": knownSignals,
 	})
+}
+
+// distinctSignalTypes returns the unique signal types across the entries,
+// preserving first-seen order so the dropdown is stable.
+func distinctSignalTypes(entries []*dictionary.AttributeEntry) []dictionary.SignalType {
+	seen := make(map[dictionary.SignalType]bool)
+	out := make([]dictionary.SignalType, 0, 3)
+	for _, e := range entries {
+		for _, st := range e.SignalTypes {
+			if st != "" && !seen[st] {
+				seen[st] = true
+				out = append(out, st)
+			}
+		}
+	}
+	return out
 }
 
 const defaultAttributeTypeSeed = "string"

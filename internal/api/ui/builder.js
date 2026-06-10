@@ -8,6 +8,16 @@ import { html, render, useState, useEffect, useRef } from "./vendor/preact-htm.s
 
 const STABILITIES = ["stable", "development", "release_candidate", "deprecated"];
 const REQUIREMENTS = ["required", "recommended", "opt_in", "conditionally_required"];
+// FindingLevel enum for a finding filter's min_level ("" = no minimum).
+const FINDING_LEVELS = ["", "information", "improvement", "violation"];
+
+// toList splits a comma/newline-separated textarea/input into a trimmed string[].
+function toList(text) {
+  return String(text || "")
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 // Cross-ref classification → status-chip label + reused badge class.
 const CROSS_REF = {
@@ -75,10 +85,42 @@ function checkToPolicy(c) {
   return { template_id: c.template_id, name: c.name || undefined, params: { ...c.params } };
 }
 
+// configToPayload maps the Config-tab model to the BuilderState.config object.
+// Returns undefined when config emission is disabled, so no `.weaver.toml` is
+// generated. List/optional fields collapse to undefined when empty so the
+// backend defaults (registry.path ".", policy.paths ["policies"]) can apply.
+function configToPayload(config) {
+  if (!config || !config.enabled) return undefined;
+  const policyPaths = toList(config.policy_paths);
+  const filters = (config.filters || [])
+    .map((f) => ({
+      exclude: toList(f.exclude),
+      exclude_samples: toList(f.exclude_samples),
+      min_level: f.min_level || undefined,
+      signal_type: f.signal_type || undefined,
+    }))
+    .map((f) => ({
+      exclude: f.exclude.length ? f.exclude : undefined,
+      exclude_samples: f.exclude_samples.length ? f.exclude_samples : undefined,
+      min_level: f.min_level,
+      signal_type: f.signal_type,
+    }))
+    .filter((f) => f.exclude || f.exclude_samples || f.min_level || f.signal_type);
+  return {
+    registry_path: config.registry_path || undefined,
+    policy_paths: policyPaths.length ? policyPaths : undefined,
+    policy_skip: config.policy_skip || undefined,
+    advice_policies: config.advice_policies || undefined,
+    advice_preprocessor: config.advice_preprocessor || undefined,
+    diagnostics_format: config.diagnostics_format || undefined,
+    finding_filters: filters.length ? filters : undefined,
+  };
+}
+
 // buildState turns the row + check models into the BuilderState payload that the
 // generate endpoint (and WeaverExporter) consume. Only complete checks are sent
 // so an in-progress check form does not break the whole preview.
-function buildState(manifest, rows, checks, catalog) {
+function buildState(manifest, rows, checks, catalog, config) {
   return {
     manifest: {
       schema_url: manifest.schema_url,
@@ -98,6 +140,7 @@ function buildState(manifest, rows, checks, catalog) {
       ],
     })),
     policies: (checks || []).filter((c) => checkComplete(c, catalog)).map(checkToPolicy),
+    config: configToPayload(config),
   };
 }
 
@@ -409,6 +452,114 @@ function ChecksPanel({ catalog, catalogError, checks, setChecks }) {
   `;
 }
 
+let filterSeq = 0;
+
+function newFilter() {
+  return { key: "f" + ++filterSeq, exclude: "", exclude_samples: "", min_level: "", signal_type: "" };
+}
+
+// FindingFilterRow edits one `[[live_check.finding_filters]]` entry. signal_type
+// options come from the user's known signal types (seed response).
+function FindingFilterRow({ filter, signalTypes, onUpdate, onRemove }) {
+  const upd = (k, v) => onUpdate({ ...filter, [k]: v });
+  return html`
+    <div class="bld-check-card">
+      <div class="bld-check-head">
+        <strong>Finding filter</strong>
+        <button class="bld-btn bld-btn-sm bld-btn-ghost" onClick=${onRemove} title="Remove filter">Remove</button>
+      </div>
+      <label class="bld-field">
+        <span>Exclude finding IDs <em>(comma or newline)</em></span>
+        <input placeholder="missing_attribute, deprecated_attribute" value=${filter.exclude} onInput=${(e) => upd("exclude", e.target.value)} />
+      </label>
+      <label class="bld-field">
+        <span>Exclude samples <em>(attribute keys)</em></span>
+        <input placeholder="trace.parent_id, trace.span_id" value=${filter.exclude_samples} onInput=${(e) => upd("exclude_samples", e.target.value)} />
+      </label>
+      <label class="bld-field">
+        <span>Minimum level</span>
+        <select value=${filter.min_level} onChange=${(e) => upd("min_level", e.target.value)}>
+          ${FINDING_LEVELS.map((l) => html`<option value=${l} selected=${l === filter.min_level}>${l || "(any)"}</option>`)}
+        </select>
+      </label>
+      <label class="bld-field">
+        <span>Signal type scope</span>
+        <select value=${filter.signal_type} onChange=${(e) => upd("signal_type", e.target.value)}>
+          <option value="" selected=${filter.signal_type === ""}>(all)</option>
+          ${(signalTypes || []).map((s) => html`<option value=${s} selected=${s === filter.signal_type}>${s}</option>`)}
+        </select>
+      </label>
+    </div>
+  `;
+}
+
+// ConfigPanel drives the `.weaver.toml` emitter: a master enable toggle plus the
+// registry / policy / live-check / diagnostics sections and finding-filter rows.
+function ConfigPanel({ config, setConfig, signalTypes }) {
+  const upd = (k, v) => setConfig({ ...config, [k]: v });
+  const updFilter = (i, f) => setConfig({ ...config, filters: config.filters.map((x, j) => (j === i ? f : x)) });
+  const addFilter = () => setConfig({ ...config, filters: [...config.filters, newFilter()] });
+  const removeFilter = (i) => setConfig({ ...config, filters: config.filters.filter((_, j) => j !== i) });
+
+  return html`
+    <div class="bld-checks">
+      <label class="bld-check">
+        <input type="checkbox" checked=${config.enabled} onChange=${(e) => upd("enabled", e.target.checked)} />
+        <span>Emit <code>.weaver.toml</code></span>
+      </label>
+      <p class="bld-muted">
+        Generates the Weaver config that wires your registry, the generated <code>policies/</code> checks,
+        and live-check finding filters. Leave a field blank to take the default
+        (<code>registry.path = "."</code>, <code>policy.paths = ["policies"]</code>).
+      </p>
+      ${!config.enabled
+        ? null
+        : html`
+            <div class="bld-cfg">
+              <h4>Registry &amp; policy</h4>
+              <label class="bld-field">
+                <span>Registry path</span>
+                <input placeholder="." value=${config.registry_path} onInput=${(e) => upd("registry_path", e.target.value)} />
+              </label>
+              <label class="bld-field">
+                <span>Policy paths <em>(comma or newline)</em></span>
+                <input placeholder="policies" value=${config.policy_paths} onInput=${(e) => upd("policy_paths", e.target.value)} />
+              </label>
+              <label class="bld-check">
+                <input type="checkbox" checked=${config.policy_skip} onChange=${(e) => upd("policy_skip", e.target.checked)} />
+                <span>Skip policy checks</span>
+              </label>
+
+              <h4>Live check</h4>
+              <label class="bld-field">
+                <span>Advice policies directory</span>
+                <input placeholder="advice" value=${config.advice_policies} onInput=${(e) => upd("advice_policies", e.target.value)} />
+              </label>
+              <label class="bld-field">
+                <span>Advice preprocessor <em>(jq)</em></span>
+                <input placeholder=".groups" value=${config.advice_preprocessor} onInput=${(e) => upd("advice_preprocessor", e.target.value)} />
+              </label>
+
+              <h4>Diagnostics</h4>
+              <label class="bld-field">
+                <span>Format</span>
+                <input placeholder="ansi" value=${config.diagnostics_format} onInput=${(e) => upd("diagnostics_format", e.target.value)} />
+              </label>
+
+              <h4>Finding filters</h4>
+              <p class="bld-muted">Drop live-check findings by id, sample, minimum level, or signal-type scope.</p>
+              <button class="bld-btn bld-btn-sm" onClick=${addFilter}>Add filter</button>
+              ${config.filters.length === 0
+                ? html`<p class="bld-muted">No filters added.</p>`
+                : html`<div class="bld-check-list">
+                    ${config.filters.map((f, i) => html`<${FindingFilterRow} key=${f.key} filter=${f} signalTypes=${signalTypes} onUpdate=${(x) => updFilter(i, x)} onRemove=${() => removeFilter(i)} />`)}
+                  </div>`}
+            </div>
+          `}
+    </div>
+  `;
+}
+
 function Builder() {
   const [loading, setLoading] = useState(true);
   const [seedError, setSeedError] = useState("");
@@ -417,10 +568,21 @@ function Builder() {
   const [files, setFiles] = useState({});
   const [genError, setGenError] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [tab, setTab] = useState("definitions"); // "definitions" | "checks"
+  const [tab, setTab] = useState("definitions"); // "definitions" | "checks" | "config"
   const [catalog, setCatalog] = useState([]);
   const [catalogError, setCatalogError] = useState("");
   const [checks, setChecks] = useState([]);
+  const [signalTypes, setSignalTypes] = useState([]);
+  const [config, setConfig] = useState({
+    enabled: false,
+    registry_path: "",
+    policy_paths: "",
+    policy_skip: false,
+    advice_policies: "",
+    advice_preprocessor: "",
+    diagnostics_format: "",
+    filters: [],
+  });
   const debounceRef = useRef(null);
 
   // Seed the definitions table and load the check catalog once on mount.
@@ -430,6 +592,7 @@ function Builder() {
       .then((data) => {
         if (cancelled) return;
         setRows((data.attributes || []).map(seedToRow));
+        setSignalTypes(data.known_signal_types || []);
         setLoading(false);
       })
       .catch((err) => {
@@ -463,7 +626,7 @@ function Builder() {
         const r = await fetch("/api/v1/builder/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildState(manifest, rows, checks, catalog)),
+          body: JSON.stringify(buildState(manifest, rows, checks, catalog, config)),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -481,7 +644,7 @@ function Builder() {
       }
     }, 400);
     return () => clearTimeout(debounceRef.current);
-  }, [manifest, rows, checks, catalog]);
+  }, [manifest, rows, checks, catalog, config]);
 
   if (loading) return html`<p class="bld-muted">Loading discovered attributes…</p>`;
   if (seedError) return html`<p class="bld-error">Could not seed the builder: ${seedError}</p>`;
@@ -498,6 +661,7 @@ function Builder() {
       <div class="bld-subtabs" role="tablist">
         <button class=${"bld-subtab" + (tab === "definitions" ? " active" : "")} role="tab" aria-selected=${tab === "definitions"} onClick=${() => setTab("definitions")}>Definitions</button>
         <button class=${"bld-subtab" + (tab === "checks" ? " active" : "")} role="tab" aria-selected=${tab === "checks"} onClick=${() => setTab("checks")}>Checks</button>
+        <button class=${"bld-subtab" + (tab === "config" ? " active" : "")} role="tab" aria-selected=${tab === "config"} onClick=${() => setTab("config")}>Config</button>
       </div>
       <${ManifestForm} manifest=${manifest} setManifest=${setManifest} />
       ${tab === "definitions"
@@ -505,7 +669,9 @@ function Builder() {
             <${GroupTools} rows=${rows} setRows=${setRows} />
             <${AttrTable} rows=${rows} setRows=${setRows} />
           `
-        : html`<${ChecksPanel} catalog=${catalog} catalogError=${catalogError} checks=${checks} setChecks=${setChecks} />`}
+        : tab === "checks"
+        ? html`<${ChecksPanel} catalog=${catalog} catalogError=${catalogError} checks=${checks} setChecks=${setChecks} />`
+        : html`<${ConfigPanel} config=${config} setConfig=${setConfig} signalTypes=${signalTypes} />`}
       <${Preview} files=${files} error=${genError} loading=${generating} />
     </div>
   `;

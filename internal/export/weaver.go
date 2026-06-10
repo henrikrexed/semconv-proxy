@@ -52,6 +52,9 @@ type BuilderState struct {
 	Manifest ManifestSpec  `json:"manifest"`
 	Groups   []GroupInput  `json:"groups"`
 	Policies []PolicyInput `json:"policies,omitempty"`
+	// Config, when non-nil, adds a `.weaver.toml` to the generated file set
+	// (registry/policy/live_check/diagnostics sections).
+	Config *ConfigSpec `json:"config,omitempty"`
 }
 
 // ManifestSpec maps to Weaver's DefinitionRegistryManifest (§10.1). schema_url is
@@ -252,6 +255,25 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 		}
 		name := uniquePolicyName(base, usedNames)
 		files["policies/"+name+".rego"] = content
+	}
+
+	// Emit `.weaver.toml` when config is requested. Defaults wire the file to the
+	// generated layout: registry.path "." (registry root) and policy.paths
+	// ["policies"] when checks were emitted — so the config references the S3
+	// policy dir without the user re-typing it.
+	if state.Config != nil {
+		cfg := *state.Config
+		if cfg.RegistryPath == "" {
+			cfg.RegistryPath = "."
+		}
+		if len(cfg.PolicyPaths) == 0 && len(state.Policies) > 0 {
+			cfg.PolicyPaths = []string{"policies"}
+		}
+		toml, err := EmitWeaverConfig(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("export: emit config: %w", err)
+		}
+		files[".weaver.toml"] = toml
 	}
 
 	return files, nil
