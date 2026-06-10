@@ -46,10 +46,12 @@ const (
 )
 
 // BuilderState is the request payload for parameterised generation: the manifest
-// fields plus enriched, namespace-grouped convention definitions.
+// fields, enriched namespace-grouped convention definitions, and the selected
+// policy checks (catalog templates and/or raw rego).
 type BuilderState struct {
-	Manifest ManifestSpec `json:"manifest"`
-	Groups   []GroupInput `json:"groups"`
+	Manifest ManifestSpec  `json:"manifest"`
+	Groups   []GroupInput  `json:"groups"`
+	Policies []PolicyInput `json:"policies,omitempty"`
 }
 
 // ManifestSpec maps to Weaver's DefinitionRegistryManifest (§10.1). schema_url is
@@ -238,6 +240,18 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 			return nil, fmt.Errorf("export: marshal group %q: %w", ns, err)
 		}
 		files["groups/"+ns+".yaml"] = string(data)
+	}
+
+	// Emit one policies/<name>.rego per selected check. Catalog templates render
+	// modern rego (§10.2); raw rego is passed through unmodified.
+	usedNames := make(map[string]bool)
+	for _, pol := range state.Policies {
+		base, content, err := EmitPolicyRego(pol)
+		if err != nil {
+			return nil, fmt.Errorf("export: emit policy: %w", err)
+		}
+		name := uniquePolicyName(base, usedNames)
+		files["policies/"+name+".rego"] = content
 	}
 
 	return files, nil

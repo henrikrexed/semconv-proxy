@@ -336,6 +336,54 @@ func TestGenerateRejectsMultipleDependencies(t *testing.T) {
 	}
 }
 
+// TestGenerateDerivesNamespaceFromID covers the fallback when a GroupInput omits
+// Namespace: the namespace is taken from the dotted prefix of its ID, and a group
+// with neither namespace nor a dotted ID lands in the "custom" file.
+func TestGenerateDerivesNamespaceFromID(t *testing.T) {
+	e := NewWeaverExporter()
+	files, err := e.Generate(BuilderState{
+		Manifest: ManifestSpec{SchemaURL: "https://acme.com/schemas/0.1.0"},
+		Groups: []GroupInput{
+			// No Namespace, dotted ID -> namespace derived from prefix.
+			{ID: "http.server", Attributes: []AttributeInput{{ID: "http.server.request"}}},
+			// No Namespace, no ID -> "custom" bucket.
+			{Attributes: []AttributeInput{{ID: "orphan.attr"}}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+
+	if _, ok := files["groups/http.yaml"]; !ok {
+		t.Fatalf("expected namespace derived from ID -> groups/http.yaml, got %v", keysOf(files))
+	}
+	if _, ok := files["groups/custom.yaml"]; !ok {
+		t.Fatalf("expected namespaceless group -> groups/custom.yaml, got %v", keysOf(files))
+	}
+
+	var httpFile genGroupFile
+	if err := yaml.Unmarshal([]byte(files["groups/http.yaml"]), &httpFile); err != nil {
+		t.Fatalf("groups/http.yaml does not parse: %v", err)
+	}
+	// ID is preserved as-is; only the file/namespace key is derived.
+	if httpFile.Groups[0].ID != "http.server" {
+		t.Errorf("group id = %q, want http.server", httpFile.Groups[0].ID)
+	}
+}
+
+func TestNamespaceFromID(t *testing.T) {
+	cases := map[string]string{
+		"http.server.request": "http",
+		"db":                   "db",
+		"":                     "",
+	}
+	for in, want := range cases {
+		if got := namespaceFromID(in); got != want {
+			t.Errorf("namespaceFromID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func keysOf(m map[string]string) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

@@ -59,9 +59,26 @@ function seedToRow(a) {
   };
 }
 
-// buildState turns the row model into the BuilderState payload that the
-// generate endpoint (and WeaverExporter) consume.
-function buildState(manifest, rows) {
+// checkComplete reports whether a check carries enough input to emit valid rego:
+// a raw check needs non-empty rego; a template check needs all required params.
+function checkComplete(c, catalog) {
+  if (c.rawMode) return String(c.raw || "").trim() !== "";
+  const tmpl = (catalog || []).find((t) => t.id === c.template_id);
+  if (!tmpl) return false;
+  return (tmpl.params || []).every((p) => !p.required || String(c.params[p.name] || "").trim() !== "");
+}
+
+// checkToPolicy maps a UI check to a PolicyInput. string_list params stay as the
+// raw textarea string — the backend splits on commas/newlines.
+function checkToPolicy(c) {
+  if (c.rawMode) return { name: c.name || undefined, raw: c.raw };
+  return { template_id: c.template_id, name: c.name || undefined, params: { ...c.params } };
+}
+
+// buildState turns the row + check models into the BuilderState payload that the
+// generate endpoint (and WeaverExporter) consume. Only complete checks are sent
+// so an in-progress check form does not break the whole preview.
+function buildState(manifest, rows, checks, catalog) {
   return {
     manifest: {
       schema_url: manifest.schema_url,
@@ -80,6 +97,7 @@ function buildState(manifest, rows) {
         },
       ],
     })),
+    policies: (checks || []).filter((c) => checkComplete(c, catalog)).map(checkToPolicy),
   };
 }
 
@@ -253,6 +271,144 @@ function Preview({ files, error, loading }) {
   `;
 }
 
+let checkSeq = 0;
+
+// newTemplateCheck instantiates a check from a catalog template, pre-filling
+// param defaults.
+function newTemplateCheck(tmpl) {
+  const params = {};
+  (tmpl.params || []).forEach((p) => {
+    params[p.name] = p.default || "";
+  });
+  return { key: "c" + ++checkSeq, rawMode: false, template_id: tmpl.id, title: tmpl.title, stage: tmpl.stage, name: "", params };
+}
+
+function newRawCheck() {
+  return {
+    key: "c" + ++checkSeq,
+    rawMode: true,
+    name: "",
+    raw: "package after_resolution\nimport rego.v1\n\ndeny contains v if {\n\t# your rule here\n\tfalse\n}\n",
+  };
+}
+
+// ChecksCatalog lists the parameterised templates; each card adds a configurable
+// check instance. Raw Rego is the advanced escape hatch.
+function ChecksCatalog({ catalog, onAdd, onAddRaw }) {
+  return html`
+    <div class="bld-cat">
+      ${catalog.map(
+        (t) => html`
+          <div class="bld-cat-card" key=${t.id}>
+            <div class="bld-cat-head">
+              <strong>${t.title}</strong>
+              <span class="badge stable" title="Weaver stage (rego package)">${t.stage}</span>
+            </div>
+            <p class="bld-muted">${t.description}</p>
+            <button class="bld-btn bld-btn-sm" onClick=${() => onAdd(t)}>Add check</button>
+          </div>
+        `
+      )}
+      <div class="bld-cat-card bld-cat-raw">
+        <div class="bld-cat-head">
+          <strong>Raw Rego</strong>
+          <span class="badge release_candidate" title="Advanced escape hatch">advanced</span>
+        </div>
+        <p class="bld-muted">Hand-write a policy. Output is passed through unmodified — you own the §10.2 contract.</p>
+        <button class="bld-btn bld-btn-sm" onClick=${onAddRaw}>Add raw policy</button>
+      </div>
+    </div>
+  `;
+}
+
+function CheckParam({ param, value, onChange }) {
+  if (param.type === "string_list") {
+    return html`
+      <label class="bld-field">
+        <span>${param.label} <em>${param.required ? "(required)" : ""}</em></span>
+        <textarea
+          class="bld-raw"
+          rows="3"
+          placeholder=${param.help || "one per line"}
+          value=${value}
+          onInput=${(e) => onChange(e.target.value)}
+        ></textarea>
+      </label>
+    `;
+  }
+  return html`
+    <label class="bld-field">
+      <span>${param.label} <em>${param.required ? "(required)" : ""}</em></span>
+      <input
+        placeholder=${param.help || ""}
+        value=${value}
+        onInput=${(e) => onChange(e.target.value)}
+      />
+    </label>
+  `;
+}
+
+// CheckCard renders one selected check: its param form (or raw editor) plus a
+// remove control.
+function CheckCard({ check, catalog, onUpdate, onRemove }) {
+  const tmpl = check.rawMode ? null : catalog.find((t) => t.id === check.template_id);
+  const setParam = (name, v) => onUpdate({ ...check, params: { ...check.params, [name]: v } });
+  return html`
+    <div class="bld-check-card">
+      <div class="bld-check-head">
+        <strong>${check.rawMode ? "Raw Rego" : check.title}</strong>
+        ${check.stage ? html`<span class="badge stable">${check.stage}</span>` : null}
+        <button class="bld-btn bld-btn-sm bld-btn-ghost" onClick=${onRemove} title="Remove check">Remove</button>
+      </div>
+      <label class="bld-field">
+        <span>File name <em>(optional)</em></span>
+        <input
+          placeholder=${check.rawMode ? "custom_check" : check.template_id}
+          value=${check.name}
+          onInput=${(e) => onUpdate({ ...check, name: e.target.value })}
+        />
+      </label>
+      ${check.rawMode
+        ? html`
+            <label class="bld-field">
+              <span>Rego source</span>
+              <textarea
+                class="bld-raw bld-raw-tall"
+                rows="8"
+                value=${check.raw}
+                onInput=${(e) => onUpdate({ ...check, raw: e.target.value })}
+              ></textarea>
+            </label>
+          `
+        : (tmpl && tmpl.params || []).map(
+            (p) => html`<${CheckParam} key=${p.name} param=${p} value=${check.params[p.name] || ""} onChange=${(v) => setParam(p.name, v)} />`
+          )}
+    </div>
+  `;
+}
+
+function ChecksPanel({ catalog, catalogError, checks, setChecks }) {
+  if (catalogError) return html`<p class="bld-error">Could not load the check catalog: ${catalogError}</p>`;
+  const add = (t) => setChecks([...checks, newTemplateCheck(t)]);
+  const addRaw = () => setChecks([...checks, newRawCheck()]);
+  const update = (i, c) => setChecks(checks.map((x, j) => (j === i ? c : x)));
+  const remove = (i) => setChecks(checks.filter((_, j) => j !== i));
+  return html`
+    <div class="bld-checks">
+      <p class="bld-muted">
+        Add checks from the catalog below; each emits a <code>policies/&lt;name&gt;.rego</code> file in the preview.
+        Pick a template (the common path) or hand-write Rego as an advanced escape hatch.
+      </p>
+      <${ChecksCatalog} catalog=${catalog} onAdd=${add} onAddRaw=${addRaw} />
+      ${checks.length === 0
+        ? html`<p class="bld-muted">No checks added yet.</p>`
+        : html`<div class="bld-check-list">
+            ${checks.map((c, i) => html`<${CheckCard} key=${c.key} check=${c} catalog=${catalog} onUpdate=${(x) => update(i, x)} onRemove=${() => remove(i)} />`)}
+          </div>`}
+    </div>
+  `;
+}
+
 function Builder() {
   const [loading, setLoading] = useState(true);
   const [seedError, setSeedError] = useState("");
@@ -261,9 +417,13 @@ function Builder() {
   const [files, setFiles] = useState({});
   const [genError, setGenError] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [tab, setTab] = useState("definitions"); // "definitions" | "checks"
+  const [catalog, setCatalog] = useState([]);
+  const [catalogError, setCatalogError] = useState("");
+  const [checks, setChecks] = useState([]);
   const debounceRef = useRef(null);
 
-  // Seed once on mount.
+  // Seed the definitions table and load the check catalog once on mount.
   useEffect(() => {
     let cancelled = false;
     getJSON("/api/v1/builder/seed")
@@ -276,6 +436,13 @@ function Builder() {
         if (cancelled) return;
         setSeedError(err.message);
         setLoading(false);
+      });
+    getJSON("/api/v1/builder/policy-templates")
+      .then((data) => {
+        if (!cancelled) setCatalog(data.templates || []);
+      })
+      .catch((err) => {
+        if (!cancelled) setCatalogError(err.message);
       });
     return () => {
       cancelled = true;
@@ -296,7 +463,7 @@ function Builder() {
         const r = await fetch("/api/v1/builder/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildState(manifest, rows)),
+          body: JSON.stringify(buildState(manifest, rows, checks, catalog)),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -314,7 +481,7 @@ function Builder() {
       }
     }, 400);
     return () => clearTimeout(debounceRef.current);
-  }, [manifest, rows]);
+  }, [manifest, rows, checks, catalog]);
 
   if (loading) return html`<p class="bld-muted">Loading discovered attributes…</p>`;
   if (seedError) return html`<p class="bld-error">Could not seed the builder: ${seedError}</p>`;
@@ -322,15 +489,23 @@ function Builder() {
   return html`
     <div class="bld">
       <header class="bld-header">
-        <h2>Weaver Asset Builder — Definitions</h2>
+        <h2>Weaver Asset Builder</h2>
         <p class="bld-muted">
           Author a custom semantic-convention registry from the attributes this proxy has observed,
-          cross-referenced against the official registry. Edit the rows below; the generated assets update live.
+          cross-referenced against the official registry. The generated assets update live.
         </p>
       </header>
+      <div class="bld-subtabs" role="tablist">
+        <button class=${"bld-subtab" + (tab === "definitions" ? " active" : "")} role="tab" aria-selected=${tab === "definitions"} onClick=${() => setTab("definitions")}>Definitions</button>
+        <button class=${"bld-subtab" + (tab === "checks" ? " active" : "")} role="tab" aria-selected=${tab === "checks"} onClick=${() => setTab("checks")}>Checks</button>
+      </div>
       <${ManifestForm} manifest=${manifest} setManifest=${setManifest} />
-      <${GroupTools} rows=${rows} setRows=${setRows} />
-      <${AttrTable} rows=${rows} setRows=${setRows} />
+      ${tab === "definitions"
+        ? html`
+            <${GroupTools} rows=${rows} setRows=${setRows} />
+            <${AttrTable} rows=${rows} setRows=${setRows} />
+          `
+        : html`<${ChecksPanel} catalog=${catalog} catalogError=${catalogError} checks=${checks} setChecks=${setChecks} />`}
       <${Preview} files=${files} error=${genError} loading=${generating} />
     </div>
   `;

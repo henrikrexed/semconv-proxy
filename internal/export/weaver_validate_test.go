@@ -77,3 +77,62 @@ func TestGenerateWeaverRegistryCheck(t *testing.T) {
 		t.Errorf("weaver registry check failed: %v\n%s", runErr, combined)
 	}
 }
+
+// TestGeneratePolicyRegoLoadsUnderWeaver is the S3 acceptance check: every
+// catalog template (plus a raw policy) emits a `.rego` that loads under
+// `weaver registry check --policy` with no parse/deserialize error. Exit status
+// is ignored — a non-zero exit from a *found* violation is expected and fine;
+// what must not appear are rego parse / Violation-deserialize errors.
+func TestGeneratePolicyRegoLoadsUnderWeaver(t *testing.T) {
+	bin := findWeaverBinary()
+	if bin == "" {
+		t.Skip("bundled weaver binary not found; skipping policy check")
+	}
+
+	state := sampleState()
+	for _, tmpl := range PolicyCatalog() {
+		state.Policies = append(state.Policies, PolicyInput{TemplateID: tmpl.ID, Params: sampleParams(tmpl.ID)})
+	}
+	state.Policies = append(state.Policies, PolicyInput{
+		Name: "raw_passthrough",
+		Raw:  "package after_resolution\nimport rego.v1\n\ndeny contains v if {\n\tfalse\n}\n",
+	})
+
+	files, err := NewWeaverExporter().Generate(state, nil)
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+
+	regDir := t.TempDir()
+	for path, content := range files {
+		full := filepath.Join(regDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	cmd := exec.Command(bin, "registry", "check", "-r", regDir, "--policy", filepath.Join(regDir, "policies"))
+	out, runErr := cmd.CombinedOutput()
+	combined := string(out)
+	t.Logf("weaver registry check --policy exit=%v output:\n%s", runErr, combined)
+
+	// These substrings are the §10.2 failure modes the emitter must never produce.
+	for _, bad := range []string{
+		"rego_parse_error",
+		"'if' keyword is required",
+		"expected A policy violation",
+		"missing field",
+		"var v is unsafe",
+	} {
+		if strings.Contains(combined, bad) {
+			t.Errorf("weaver reported %q — emitted rego is non-conformant; output:\n%s", bad, combined)
+		}
+	}
+	// The policies must actually be loaded/evaluated, not silently ignored.
+	if !strings.Contains(combined, "policies checked") {
+		t.Errorf("weaver did not report checking any policies; output:\n%s", combined)
+	}
+}

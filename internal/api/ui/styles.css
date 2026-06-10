@@ -209,6 +209,34 @@ html, body {
 }
 .bld-error { color: var(--deprecated); font-size: 13px; background: #3d1d1d33; border: 1px solid #f8514955; border-radius: var(--radius); padding: 8px 10px; }
 
+/* ---- Builder sub-tabs + Checks ---- */
+.bld-subtabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.bld-subtab {
+  background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+  padding: 6px 12px; font-size: 14px; cursor: pointer;
+}
+.bld-subtab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.bld-checks { margin-bottom: 20px; }
+.bld-checks > p { max-width: 80ch; }
+.bld-cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 12px 0 18px; }
+.bld-cat-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+.bld-cat-raw { border-style: dashed; }
+.bld-cat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bld-cat-card p { margin: 0; flex: 1; font-size: 12px; }
+.bld-cat-card .bld-btn { align-self: flex-start; }
+.bld-check-list { display: flex; flex-direction: column; gap: 12px; }
+.bld-check-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--panel-2); }
+.bld-check-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.bld-check-head strong { flex: 0 0 auto; }
+.bld-btn-ghost { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); }
+.bld-raw {
+  font-family: ui-monospace, Menlo, monospace; font-size: 12px; width: 100%;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; resize: vertical;
+}
+.bld-raw:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bld-raw-tall { min-height: 160px; }
+
 /* ---- Responsive ---- */
 @media (max-width: 820px) {
   .topbar { grid-template-columns: 1fr auto; row-gap: 8px; }

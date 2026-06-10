@@ -81,6 +81,24 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleBuilderPolicyTemplates serves the static, proxy-versioned policy check
+// catalog that drives the Checks UI.
+//
+//	GET /api/v1/builder/policy-templates
+//
+// Each template carries its parameter schema and its Weaver stage (rego package);
+// the UI renders a form per template and the emitter (POST /builder/generate)
+// turns the filled form into a `policies/<name>.rego` file.
+func (s *Server) handleBuilderPolicyTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"templates": export.PolicyCatalog(),
+	})
+}
+
 // seedAttribute is one discovered attribute shaped for the Definitions table. It
 // carries both the editable authoring fields (pre-filled from the observed
 // telemetry and, when matched, the official registry) and the community

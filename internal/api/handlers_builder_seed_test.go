@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/henrikrexed/semconv-proxy/internal/dictionary"
+	"github.com/henrikrexed/semconv-proxy/internal/semconv"
 )
 
 func getSeed(t *testing.T, s *Server, query string) *httptest.ResponseRecorder {
@@ -166,5 +168,80 @@ func TestBuilderSeedMethodNotAllowed(t *testing.T) {
 	s.handleBuilderSeed(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestBuilderSeedRegistryUnavailable(t *testing.T) {
+	s := &Server{} // semconv nil
+	w := getSeed(t, s, "")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "REGISTRY_UNAVAILABLE") {
+		t.Errorf("expected REGISTRY_UNAVAILABLE code, got %s", w.Body.String())
+	}
+}
+
+func TestBuilderSeedDictionaryUnavailable(t *testing.T) {
+	reg, err := semconv.Load()
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	s := &Server{semconv: reg} // dict nil
+	w := getSeed(t, s, "")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "DICTIONARY_UNAVAILABLE") {
+		t.Errorf("expected DICTIONARY_UNAVAILABLE code, got %s", w.Body.String())
+	}
+}
+
+// The limit caps the returned attributes while total reflects the full match
+// count, so the table can page without losing the true size.
+func TestBuilderSeedLimitCaps(t *testing.T) {
+	s := newTestServer(t)
+	// newTestServer already seeds http.request.method; add a second entry so the
+	// dictionary holds >1 and limit=1 forces the cap break.
+	s.dict.Upsert(&dictionary.AttributeEntry{
+		Name:        "db.system",
+		Type:        "string",
+		SignalTypes: []dictionary.SignalType{dictionary.SignalTypeTrace},
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Status:      dictionary.StatusActive,
+	})
+
+	res := decodeSeed(t, getSeed(t, s, "?limit=1"))
+	if res.Limit != 1 {
+		t.Errorf("limit = %d, want 1", res.Limit)
+	}
+	if len(res.Attributes) != 1 {
+		t.Errorf("returned %d attributes, want 1 (capped)", len(res.Attributes))
+	}
+	if res.Total < 2 {
+		t.Errorf("total = %d, want >=2 (full match count, not capped)", res.Total)
+	}
+}
+
+// An attribute name with no dotted prefix falls back to the "custom" namespace.
+func TestBuilderSeedUnNamespacedFallsBackToCustom(t *testing.T) {
+	s := newTestServer(t)
+	s.dict.Upsert(&dictionary.AttributeEntry{
+		Name:        "singleword",
+		Type:        "string",
+		SignalTypes: []dictionary.SignalType{dictionary.SignalTypeTrace},
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		Status:      dictionary.StatusActive,
+	})
+
+	res := decodeSeed(t, getSeed(t, s, "?q=singleword"))
+	a, ok := findSeed(res.Attributes, "singleword")
+	if !ok {
+		t.Fatalf("expected singleword in seed, got %+v", res.Attributes)
+	}
+	if a.Namespace != "custom" {
+		t.Errorf("namespace = %q, want custom for un-namespaced name", a.Namespace)
 	}
 }
