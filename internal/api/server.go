@@ -61,6 +61,7 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 	mux.HandleFunc("/api/v1/builder/seed", s.handleBuilderSeed)
 	mux.HandleFunc("/api/v1/builder/generate", s.handleBuilderGenerate)
 	mux.HandleFunc("/api/v1/builder/policy-templates", s.handleBuilderPolicyTemplates)
+	mux.HandleFunc("/api/v1/builder/export.zip", s.handleBuilderExportZip)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))

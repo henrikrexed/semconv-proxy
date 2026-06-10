@@ -199,7 +199,16 @@ html, body {
 .bld-table .bld-type { min-width: 70px; }
 .bld-table input:focus, .bld-table select:focus { outline: 1px solid var(--accent); }
 
-.bld-preview-head h3 { font-size: 15px; margin: 0 0 8px; }
+.bld-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.bld-preview-head h3 { font-size: 15px; margin: 0; }
+.bld-tree-dir { margin: 6px 0; }
+.bld-tree-dir-name { font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+.bld-tree-dir-name code { font-family: ui-monospace, Menlo, monospace; }
+.bld-tree-children { padding-left: 16px; border-left: 1px solid var(--border); margin-left: 4px; }
+.bld-tree-toggle {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 0; width: 14px; line-height: 1;
+}
 .bld-file { margin-bottom: 12px; }
 .bld-file-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .bld-file-head code { background: var(--panel-2); padding: 2px 8px; border-radius: 5px; font-size: 12px; }
@@ -255,4 +264,17 @@ html, body {
   .detail { width: 100%; top: 0; }
   .compare-buckets { grid-template-columns: repeat(2, 1fr); }
   .compare-count { font-size: 18px; }
+
+  /* Builder: stack the manifest fields, let the wide attribute table scroll
+     horizontally rather than overflow the viewport, and allow the subtab strip
+     and policy catalog to wrap on phone-width. */
+  .bld-manifest { flex-direction: column; gap: 10px; }
+  .bld-field { min-width: 0; }
+  .bld-subtabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bld-subtab { white-space: nowrap; }
+  .bld-tools { flex-wrap: wrap; }
+  .bld-ns-input { flex: 1 1 100%; }
+  .bld-cat { grid-template-columns: 1fr; }
+  .bld-cfg .bld-field { max-width: none; }
+  .bld-tree-children { padding-left: 10px; }
 }

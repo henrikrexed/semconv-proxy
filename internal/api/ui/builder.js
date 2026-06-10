@@ -288,28 +288,80 @@ function AttrTable({ rows, setRows }) {
   `;
 }
 
-function Preview({ files, error, loading }) {
-  const paths = Object.keys(files).sort();
+// buildTree turns the flat path->content map into a nested directory tree so the
+// preview mirrors the registry layout the user will commit (manifest at root,
+// groups/ and policies/ as folders).
+function buildTree(files) {
+  const root = { name: "", dirs: {}, files: [] };
+  for (const path of Object.keys(files)) {
+    const parts = path.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      if (!node.dirs[seg]) node.dirs[seg] = { name: seg, dirs: {}, files: [] };
+      node = node.dirs[seg];
+    }
+    node.files.push({ path, name: parts[parts.length - 1] });
+  }
+  return root;
+}
+
+// FileNode renders one generated file: a header (name + per-file download) and a
+// collapsible source preview.
+function FileNode({ node, content }) {
+  const [open, setOpen] = useState(true);
   return html`
-    <div class="bld-preview">
-      <div class="bld-preview-head">
-        <h3>Generated assets ${loading ? html`<span class="bld-muted">· generating…</span>` : null}</h3>
+    <div class="bld-file" key=${node.path}>
+      <div class="bld-file-head">
+        <button class="bld-tree-toggle" onClick=${() => setOpen(!open)} aria-expanded=${open} title=${open ? "Collapse" : "Expand"}>
+          ${open ? "▾" : "▸"}
+        </button>
+        <code>${node.name}</code>
+        <button class="bld-btn bld-btn-sm" onClick=${() => downloadFile(node.path, content)}>Download</button>
       </div>
-      ${error ? html`<p class="bld-error">${error}</p>` : null}
-      ${paths.length === 0 && !error
-        ? html`<p class="bld-muted">Set a valid schema URL to preview the generated registry.</p>`
-        : null}
-      ${paths.map(
-        (p) => html`
-          <div class="bld-file" key=${p}>
-            <div class="bld-file-head">
-              <code>${p}</code>
-              <button class="bld-btn bld-btn-sm" onClick=${() => downloadFile(p, files[p])}>Download</button>
+      ${open ? html`<pre>${content}</pre>` : null}
+    </div>
+  `;
+}
+
+// TreeNode renders a directory level: nested folders first (sorted), then the
+// files at this level (sorted).
+function TreeNode({ node, files }) {
+  const dirNames = Object.keys(node.dirs).sort();
+  const fileNodes = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+  return html`
+    <div class="bld-tree-level">
+      ${dirNames.map(
+        (d) => html`
+          <div class="bld-tree-dir" key=${d}>
+            <div class="bld-tree-dir-name">📁 <code>${d}/</code></div>
+            <div class="bld-tree-children">
+              <${TreeNode} node=${node.dirs[d]} files=${files} />
             </div>
-            <pre>${files[p]}</pre>
           </div>
         `
       )}
+      ${fileNodes.map((f) => html`<${FileNode} key=${f.path} node=${f} content=${files[f.path]} />`)}
+    </div>
+  `;
+}
+
+function Preview({ files, error, loading, onDownloadZip }) {
+  const paths = Object.keys(files);
+  const tree = buildTree(files);
+  const hasFiles = paths.length > 0;
+  return html`
+    <div class="bld-preview">
+      <div class="bld-preview-head">
+        <h3>Generated registry ${loading ? html`<span class="bld-muted">· generating…</span>` : null}</h3>
+        <button class="bld-btn bld-btn-sm" disabled=${!hasFiles} onClick=${onDownloadZip} title="Download the whole registry as a zip">
+          Download all (.zip)
+        </button>
+      </div>
+      ${error ? html`<p class="bld-error">${error}</p>` : null}
+      ${!hasFiles && !error
+        ? html`<p class="bld-muted">Set a valid schema URL to preview the generated registry.</p>`
+        : html`<${TreeNode} node=${tree} files=${files} />`}
     </div>
   `;
 }
@@ -646,6 +698,35 @@ function Builder() {
     return () => clearTimeout(debounceRef.current);
   }, [manifest, rows, checks, catalog, config]);
 
+  // Bundle the current builder state into a registry.zip and trigger a download.
+  // Reuses the same state payload as the live preview so the archive matches what
+  // the tree shows.
+  async function downloadZip() {
+    try {
+      const r = await fetch("/api/v1/builder/export.zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildState(manifest, rows, checks, catalog, config)),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setGenError(data.error || r.status + " " + r.statusText);
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "registry.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setGenError(err.message);
+    }
+  }
+
   if (loading) return html`<p class="bld-muted">Loading discovered attributes…</p>`;
   if (seedError) return html`<p class="bld-error">Could not seed the builder: ${seedError}</p>`;
 
@@ -672,7 +753,7 @@ function Builder() {
         : tab === "checks"
         ? html`<${ChecksPanel} catalog=${catalog} catalogError=${catalogError} checks=${checks} setChecks=${setChecks} />`
         : html`<${ConfigPanel} config=${config} setConfig=${setConfig} signalTypes=${signalTypes} />`}
-      <${Preview} files=${files} error=${genError} loading=${generating} />
+      <${Preview} files=${files} error=${genError} loading=${generating} onDownloadZip=${downloadZip} />
     </div>
   `;
 }

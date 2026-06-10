@@ -31,43 +31,34 @@ func isVersionedSchemaURL(s string) bool {
 	return strings.ContainsAny(seg, "0123456789")
 }
 
-// handleBuilderGenerate turns posted builder state into a Weaver registry file
-// set (path -> content).
-//
-//	POST /api/v1/builder/generate
-//
-// The body is an export.BuilderState. schema_url on the manifest is required.
-// When the state declares no dependencies, the pinned OTel dependency derived
-// from the embedded registry is injected as the default.
-func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
-		return
-	}
-
+// decodeAndGenerate decodes an export.BuilderState from the request body, applies
+// the §10 validation shared by /generate and /export.zip, and returns the
+// generated file set. On any failure it writes the appropriate error response and
+// returns ok=false so the caller can stop.
+func (s *Server) decodeAndGenerate(w http.ResponseWriter, r *http.Request) (map[string]string, bool) {
 	var state export.BuilderState
 	if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
-		return
+		return nil, false
 	}
 
 	if state.Manifest.SchemaURL == "" {
 		writeError(w, http.StatusBadRequest, "manifest.schema_url is required", "BAD_REQUEST")
-		return
+		return nil, false
 	}
 	if !isVersionedSchemaURL(state.Manifest.SchemaURL) {
 		writeError(w, http.StatusBadRequest, "manifest.schema_url must be a versioned OTel schema URL (e.g. https://host/path/1.2.3)", "BAD_REQUEST")
-		return
+		return nil, false
 	}
 	if len(state.Manifest.Dependencies) > 1 {
 		writeError(w, http.StatusBadRequest, "manifest.dependencies allows at most one entry (weaver v0.23, weaver#604)", "BAD_REQUEST")
-		return
+		return nil, false
 	}
 	if state.Config != nil {
 		for _, f := range state.Config.FindingFilters {
 			if f.MinLevel != "" && !export.ValidFindingLevel(f.MinLevel) {
 				writeError(w, http.StatusBadRequest, "config.finding_filters min_level must be one of information|improvement|violation", "BAD_REQUEST")
-				return
+				return nil, false
 			}
 		}
 	}
@@ -81,12 +72,61 @@ func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
 	files, err := s.exporter.Generate(state, defaultDep)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "generation failed", "GENERATE_ERROR")
+		return nil, false
+	}
+	return files, true
+}
+
+// handleBuilderGenerate turns posted builder state into a Weaver registry file
+// set (path -> content).
+//
+//	POST /api/v1/builder/generate
+//
+// The body is an export.BuilderState. schema_url on the manifest is required.
+// When the state declares no dependencies, the pinned OTel dependency derived
+// from the embedded registry is injected as the default.
+func (s *Server) handleBuilderGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
 		return
 	}
-
+	files, ok := s.decodeAndGenerate(w, r)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"files": files,
 	})
+}
+
+// handleBuilderExportZip bundles the generated registry file set into a single
+// downloadable archive whose entries unpack to a directory that passes
+// `weaver registry check -r <dir>`.
+//
+//	POST /api/v1/builder/export.zip
+//
+// The body is the same export.BuilderState as /generate. (The asset is named
+// `export.zip` per the design surface; it is served over POST because the full
+// builder state cannot be carried in a GET.)
+func (s *Server) handleBuilderExportZip(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED")
+		return
+	}
+	files, ok := s.decodeAndGenerate(w, r)
+	if !ok {
+		return
+	}
+	archive, err := export.BundleZip(files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "bundling failed", "BUNDLE_ERROR")
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="registry.zip"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(archive)
 }
 
 // handleBuilderPolicyTemplates serves the static, proxy-versioned policy check

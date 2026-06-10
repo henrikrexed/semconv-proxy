@@ -1,7 +1,10 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +17,82 @@ func postGenerate(t *testing.T, s *Server, body string) *httptest.ResponseRecord
 	w := httptest.NewRecorder()
 	s.handleBuilderGenerate(w, req)
 	return w
+}
+
+func postExportZip(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/builder/export.zip", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleBuilderExportZip(w, req)
+	return w
+}
+
+func TestBuilderExportZipOK(t *testing.T) {
+	s := newTestServer(t)
+	body := `{
+		"manifest": {"schema_url": "https://acme.com/schemas/0.1.0"},
+		"groups": [
+			{"namespace": "http", "attributes": [{"id": "http.request.method", "type": "string"}]}
+		]
+	}`
+
+	w := postExportZip(t, s, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/zip" {
+		t.Errorf("Content-Type = %q, want application/zip", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, ".zip") {
+		t.Errorf("Content-Disposition = %q, want attachment filename", cd)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	got := make(map[string]string)
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open entry %s: %v", f.Name, err)
+		}
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		got[f.Name] = string(data)
+	}
+	if _, ok := got["manifest.yaml"]; !ok {
+		t.Errorf("zip missing manifest.yaml, got %v", keysOf(got))
+	}
+	if _, ok := got["groups/http.yaml"]; !ok {
+		t.Errorf("zip missing groups/http.yaml, got %v", keysOf(got))
+	}
+}
+
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func TestBuilderExportZipMissingSchemaURL(t *testing.T) {
+	s := newTestServer(t)
+	w := postExportZip(t, s, `{"groups": []}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestBuilderExportZipMethodNotAllowed(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/builder/export.zip", nil)
+	w := httptest.NewRecorder()
+	s.handleBuilderExportZip(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
+	}
 }
 
 func TestBuilderGenerateOK(t *testing.T) {
