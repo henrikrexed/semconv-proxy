@@ -3,14 +3,24 @@
 const PAGE = 50;
 
 const state = {
-  scope: "community", // "community" | "mine"
+  scope: "community", // "community" | "mine" | "compare"
   q: "",
   filters: { type: new Set(), stability: new Set(), namespace: new Set() },
   offset: 0,
   total: 0,
   items: [],
   selected: null,
+  compare: null, // { buckets, total } for the Compare scope
+  bucket: null, // currently drilled-in compare bucket
 };
+
+// Compare classification metadata: bucket key, label, and badge class.
+const COMPARE_CLASSES = [
+  { key: "matched", label: "Matched", badge: "stable" },
+  { key: "type-mismatch", label: "Type mismatch", badge: "development" },
+  { key: "deprecated", label: "Deprecated", badge: "deprecated" },
+  { key: "not-in-registry", label: "Not in registry", badge: "release_candidate" },
+];
 
 const el = (id) => document.getElementById(id);
 const results = el("results-list");
@@ -19,9 +29,10 @@ const meta = el("results-meta");
 // ---- URL hash (deep links) ----
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  if (p.get("scope") === "mine" || p.get("scope") === "community") state.scope = p.get("scope");
+  if (["mine", "community", "compare"].includes(p.get("scope"))) state.scope = p.get("scope");
   state.q = p.get("q") || "";
   state.selected = p.get("sel") || null;
+  state.bucket = p.get("bucket") || null;
   for (const dim of ["type", "stability", "namespace"]) {
     state.filters[dim] = new Set((p.get(dim) || "").split(",").filter(Boolean));
   }
@@ -33,6 +44,7 @@ function writeHash() {
   for (const dim of ["type", "stability", "namespace"]) {
     if (state.filters[dim].size) p.set(dim, [...state.filters[dim]].join(","));
   }
+  if (state.scope === "compare" && state.bucket) p.set("bucket", state.bucket);
   if (state.selected) p.set("sel", state.selected);
   const next = "#" + p.toString();
   if (next !== location.hash) history.replaceState(null, "", next);
@@ -53,6 +65,15 @@ async function fetchPage(reset) {
   toast("Loading…");
   try {
     let data;
+    if (state.scope === "compare") {
+      const p = new URLSearchParams();
+      if (state.q) p.set("q", state.q);
+      data = await getJSON("/api/v1/semconv/compare?" + p);
+      state.compare = data;
+      renderCompare();
+      clearToast();
+      return;
+    }
     if (state.scope === "community") {
       const p = new URLSearchParams();
       if (state.q) p.set("q", state.q);
@@ -124,6 +145,108 @@ function renderResults() {
     results.appendChild(li);
   }
   el("results-more").hidden = state.items.length >= state.total;
+}
+
+// ---- Compare scope ----
+function renderCompare() {
+  const box = el("compare-buckets");
+  box.hidden = false;
+  const data = state.compare || { buckets: {}, total: 0 };
+  box.innerHTML = COMPARE_CLASSES.map((c) => {
+    const count = (data.buckets[c.key] || {}).count || 0;
+    const active = state.bucket === c.key ? " active" : "";
+    return `<button type="button" class="compare-card${active}" data-bucket="${esc(c.key)}" ` +
+      `aria-pressed="${state.bucket === c.key}">` +
+      `<span class="compare-count">${count}</span>` +
+      `<span class="badge ${c.badge}">${esc(c.label)}</span></button>`;
+  }).join("");
+  box.querySelectorAll(".compare-card").forEach((b) =>
+    b.addEventListener("click", () => selectBucket(b.dataset.bucket)));
+
+  if (state.bucket) renderCompareBucket();
+  else {
+    results.innerHTML = "";
+    el("results-more").hidden = true;
+    meta.textContent = `${data.total} attribute${data.total === 1 ? "" : "s"} compared — pick a bucket`;
+  }
+}
+
+function selectBucket(bucket) {
+  state.bucket = state.bucket === bucket ? null : bucket;
+  state.selected = null;
+  el("detail").hidden = true;
+  writeHash();
+  renderCompare();
+}
+
+function renderCompareBucket() {
+  const data = state.compare || { buckets: {} };
+  const b = data.buckets[state.bucket] || { count: 0, entries: [] };
+  const cls = COMPARE_CLASSES.find((c) => c.key === state.bucket) || { label: state.bucket, badge: "" };
+  state.items = (b.entries || []).map((e) => ({ key: "cmp:" + e.name, raw: e }));
+  results.innerHTML = "";
+  meta.textContent = `${b.count} ${cls.label.toLowerCase()}` +
+    (b.entries && b.entries.length < b.count ? ` (showing ${b.entries.length})` : "");
+  if (!b.entries || b.entries.length === 0) {
+    results.innerHTML = '<li class="empty">No attributes in this bucket.</li>';
+    el("results-more").hidden = true;
+    return;
+  }
+  for (const e of b.entries) {
+    const li = document.createElement("li");
+    const key = "cmp:" + e.name;
+    li.className = "result" + (key === state.selected ? " selected" : "");
+    li.tabIndex = 0;
+    const reg = e.registry_type ? `<span class="badge type">${esc(e.registry_type)}</span>` : "";
+    li.innerHTML =
+      `<div class="result-head"><span class="result-name">${esc(e.name)}</span>` +
+      `<span class="badge ${cls.badge}">${esc(cls.label)}</span></div>` +
+      `<div class="result-brief">telemetry <code>${esc(e.telemetry_type || "?")}</code>` +
+      (e.registry_type ? ` · registry <code>${esc(e.registry_type)}</code>` : "") +
+      ` · cardinality ${e.cardinality}</div>`;
+    li.addEventListener("click", () => selectCompare(key));
+    li.addEventListener("keydown", (ev) => { if (ev.key === "Enter") selectCompare(key); });
+    results.appendChild(li);
+  }
+  el("results-more").hidden = true;
+}
+
+function selectCompare(key) {
+  state.selected = key;
+  writeHash();
+  document.querySelectorAll(".result").forEach((r) => r.classList.remove("selected"));
+  renderCompareBucket();
+  const entry = state.items.find((it) => it.key === key);
+  if (!entry) return;
+  const detail = el("detail");
+  el("detail").hidden = false;
+  el("detail-body").innerHTML = renderCompareDetail(entry.raw);
+  void detail;
+}
+
+function renderCompareDetail(e) {
+  const cls = COMPARE_CLASSES.find((c) => c.key === e.classification) || { label: e.classification, badge: "" };
+  let html = `<h2>${esc(e.name)}</h2><div class="badges"><span class="badge ${cls.badge}">${esc(cls.label)}</span></div>`;
+  const rows = [
+    ["Telemetry type", `<code>${esc(e.telemetry_type || "?")}</code>`],
+  ];
+  if (e.registry_type) rows.push(["Registry type", `<code>${esc(e.registry_type)}</code>`]);
+  if (e.signal_types && e.signal_types.length) rows.push(["Signals", esc(e.signal_types.join(", "))]);
+  rows.push(["Cardinality", String(e.cardinality)]);
+  html += dl(rows);
+  if (e.deprecation) {
+    const d = e.deprecation;
+    html += `<div class="dep-note"><strong>Deprecated</strong>${d.reason ? ` (${esc(d.reason)})` : ""}` +
+      `${d.renamed_to ? ` — renamed to <code>${esc(d.renamed_to)}</code>` : ""}` +
+      `${d.note ? `<br/>${esc(d.note)}` : ""}</div>`;
+  }
+  if (e.registry_key) {
+    const link = "#" + new URLSearchParams({ scope: "community", sel: e.registry_key });
+    html += `<p class="note">In the official registry: <a href="${esc(link)}">${esc(e.registry_key)}</a></p>`;
+  } else {
+    html += `<p class="note">This attribute is not present in the official semantic-convention registry.</p>`;
+  }
+  return html;
 }
 
 function briefOf(it) {
@@ -255,25 +378,42 @@ function setScope(scope) {
   if (state.scope === scope) return;
   state.scope = scope;
   state.filters = { type: new Set(), stability: new Set(), namespace: new Set() };
-  el("scope-community").classList.toggle("active", scope === "community");
-  el("scope-mine").classList.toggle("active", scope === "mine");
-  el("scope-community").setAttribute("aria-selected", scope === "community");
-  el("scope-mine").setAttribute("aria-selected", scope === "mine");
+  state.bucket = null;
+  syncScopeButtons();
   el("detail").hidden = true;
   state.selected = null;
+  applyScopeChrome();
   writeHash();
   fetchPage(true);
+}
+
+function syncScopeButtons() {
+  for (const s of ["community", "mine", "compare"]) {
+    const btn = el("scope-" + s);
+    btn.classList.toggle("active", state.scope === s);
+    btn.setAttribute("aria-selected", String(state.scope === s));
+  }
+}
+
+// applyScopeChrome shows/hides the chrome that only applies to certain scopes:
+// faceted filtering is search-only; the bucket summary is compare-only.
+function applyScopeChrome() {
+  const compare = state.scope === "compare";
+  el("facets-toggle").hidden = compare;
+  if (compare) el("facets").hidden = true;
+  el("compare-buckets").hidden = !compare;
 }
 
 let debounce;
 function init() {
   readHash();
   el("q").value = state.q;
-  el("scope-community").classList.toggle("active", state.scope === "community");
-  el("scope-mine").classList.toggle("active", state.scope === "mine");
+  syncScopeButtons();
+  applyScopeChrome();
 
   el("scope-community").addEventListener("click", () => setScope("community"));
   el("scope-mine").addEventListener("click", () => setScope("mine"));
+  el("scope-compare").addEventListener("click", () => setScope("compare"));
   el("search-form").addEventListener("submit", (e) => e.preventDefault());
   el("q").addEventListener("input", (e) => {
     state.q = e.target.value.trim();
@@ -290,13 +430,20 @@ function init() {
     state.filters = { type: new Set(), stability: new Set(), namespace: new Set() };
     writeHash(); fetchPage(true);
   });
-  el("detail-close").addEventListener("click", () => { el("detail").hidden = true; state.selected = null; writeHash(); renderResults(); });
+  el("detail-close").addEventListener("click", () => {
+    el("detail").hidden = true; state.selected = null; writeHash();
+    if (state.scope === "compare") renderCompareBucket(); else renderResults();
+  });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { el("detail").hidden = true; } });
 
   // Facets visible by default on wide screens.
   if (window.matchMedia("(min-width: 821px)").matches) el("facets").hidden = false;
 
-  fetchPage(true).then(() => { if (state.selected) select(state.selected); });
+  fetchPage(true).then(() => {
+    if (!state.selected) return;
+    if (state.scope === "compare") selectCompare(state.selected);
+    else select(state.selected);
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);
