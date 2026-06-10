@@ -45,7 +45,7 @@ The layout is responsive, so the same UI works on a laptop or a phone.
 === "Kubernetes (port-forward)"
 
     ```bash
-    kubectl port-forward svc/<release>-semconv-proxy-chart 8080:8080
+    kubectl port-forward svc/<release>-semconv-proxy 8080:8080
     # then open http://localhost:8080/
     ```
 
