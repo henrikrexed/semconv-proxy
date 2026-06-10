@@ -136,6 +136,22 @@ func TestSPA_ResponsiveContractInServedCSS(t *testing.T) {
 			t.Errorf("responsive contract missing %s (expected %q in styles.css)", name, marker)
 		}
 	}
+
+	// S5 (ISI-1195) builder-specific responsive rules. The generic markers above
+	// don't touch the builder, so a regression that drops the builder block from
+	// the @media query would pass the checks above while silently reverting the
+	// builder's mobile layout (acceptance #3). Lock the builder collapse rules in.
+	builderChecks := map[string]string{
+		"manifest fields stack":        ".bld-manifest { flex-direction: column;",
+		"subtab strip scrolls":         ".bld-subtabs { overflow-x: auto;",
+		"policy catalog collapses":     ".bld-cat { grid-template-columns: 1fr; }",
+		"preview tree indent tightens": ".bld-tree-children { padding-left: 10px; }",
+	}
+	for name, marker := range builderChecks {
+		if !strings.Contains(css, marker) {
+			t.Errorf("builder responsive contract missing %s (expected %q in styles.css)", name, marker)
+		}
+	}
 }
 
 // communityResult mirrors the JSON fields app.js normCommunity()/renderResults()

@@ -17,6 +17,22 @@ func parseTOML(t *testing.T, content string) map[string]any {
 	return m
 }
 
+func TestValidFindingLevel(t *testing.T) {
+	cases := map[string]bool{
+		"information": true,
+		"improvement": true,
+		"violation":   true,
+		"warning":     false, // not a FindingLevel
+		"Violation":   false, // case-sensitive
+		"":            false, // unset is invalid; callers special-case it
+	}
+	for in, want := range cases {
+		if got := ValidFindingLevel(in); got != want {
+			t.Errorf("ValidFindingLevel(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestEmitWeaverConfigSections(t *testing.T) {
 	spec := ConfigSpec{
 		RegistryPath:       ".",

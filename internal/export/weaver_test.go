@@ -392,6 +392,31 @@ func keysOf(m map[string]string) []string {
 	return ks
 }
 
+func TestWeaverExportLogSignalType(t *testing.T) {
+	exporter := NewWeaverExporter()
+	now := time.Now()
+
+	entries := []*dictionary.AttributeEntry{
+		{
+			Name:        "log.record.uid",
+			Type:        "string",
+			SignalTypes: []dictionary.SignalType{dictionary.SignalTypeLog},
+			FirstSeen:   now,
+			LastSeen:    now,
+			Status:      dictionary.StatusActive,
+			Cardinality: 3,
+		},
+	}
+
+	out, err := exporter.Export(entries)
+	if err != nil {
+		t.Fatalf("Export error: %v", err)
+	}
+	if !strings.Contains(string(out), "log_record") {
+		t.Errorf("expected log signal to map to type log_record, got:\n%s", out)
+	}
+}
+
 func TestWeaverExportEmpty(t *testing.T) {
 	exporter := NewWeaverExporter()
 	yaml, err := exporter.Export([]*dictionary.AttributeEntry{})

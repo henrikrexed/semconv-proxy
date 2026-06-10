@@ -276,6 +276,45 @@ func TestBuilderGenerateWithPolicies(t *testing.T) {
 	}
 }
 
+// TestBuilderGenerateInvalidFindingLevel rejects a config finding_filter whose
+// min_level is outside the closed FindingLevel enum before generation runs.
+func TestBuilderGenerateInvalidFindingLevel(t *testing.T) {
+	s := newTestServer(t)
+	body := `{
+		"manifest": {"schema_url": "https://acme.com/schemas/0.1.0"},
+		"groups": [],
+		"config": {"finding_filters": [{"min_level": "warning"}]}
+	}`
+	w := postGenerate(t, s, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestBuilderGenerateValidFindingLevel confirms a recognised min_level passes the
+// filter validation and produces a .weaver.toml in the file set.
+func TestBuilderGenerateValidFindingLevel(t *testing.T) {
+	s := newTestServer(t)
+	body := `{
+		"manifest": {"schema_url": "https://acme.com/schemas/0.1.0"},
+		"groups": [{"namespace": "http", "attributes": [{"id": "http.request.method"}]}],
+		"config": {"finding_filters": [{"min_level": "violation"}]}
+	}`
+	w := postGenerate(t, s, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var res struct {
+		Files map[string]string `json:"files"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := res.Files[".weaver.toml"]; !ok {
+		t.Fatalf("expected .weaver.toml in file set, got %v", res.Files)
+	}
+}
+
 // TestBuilderGenerateUnknownPolicyTemplate ensures an unknown template id is a
 // generation error, not a silent skip.
 func TestBuilderGenerateUnknownPolicyTemplate(t *testing.T) {
