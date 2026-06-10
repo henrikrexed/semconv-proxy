@@ -58,6 +58,7 @@ func NewServer(port int, dict *dictionary.Dictionary, tracker *cardinality.Track
 	mux.HandleFunc("/api/v1/semconv/community", s.handleCommunitySearch)
 	mux.HandleFunc("/api/v1/semconv/community/", s.handleCommunityEntry)
 	mux.HandleFunc("/api/v1/semconv/compare", s.handleCompare)
+	mux.HandleFunc("/api/v1/builder/generate", s.handleBuilderGenerate)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
