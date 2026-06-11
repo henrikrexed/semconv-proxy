@@ -197,10 +197,10 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 		if ns == "" {
 			ns = "custom"
 		}
-		// Sanitise the namespace before using it as a zip path component to prevent
+		// Sanitize the namespace before using it as a zip path component to prevent
 		// path-traversal entries (e.g. "../secrets" → "secrets"). Reuses the same
 		// [a-z0-9_] allow-list that sanitizePolicyName applies to policy file names.
-		// The pre-sanitisation "custom" fallback above ensures the result is always
+		// The pre-sanitization "custom" fallback above ensures the result is always
 		// a valid identifier; sanitizePolicyName itself never returns an empty string.
 		ns = sanitizePolicyName(ns)
 
