@@ -384,6 +384,64 @@ func TestNamespaceFromID(t *testing.T) {
 	}
 }
 
+// TestGenerateSanitisesNamespacePaths verifies that path-traversal sequences in a
+// user-supplied namespace (or group ID) can never produce zip entries outside the
+// expected groups/ directory.
+func TestGenerateSanitisesNamespacePaths(t *testing.T) {
+	e := NewWeaverExporter()
+	cases := []struct {
+		name      string
+		namespace string
+		wantKey   string // expected map key in returned files
+	}{
+		{
+			name:      "dot-dot traversal",
+			namespace: "../secrets",
+			wantKey:   "groups/secrets.yaml",
+		},
+		{
+			name:      "absolute path",
+			namespace: "/etc/passwd",
+			wantKey:   "groups/etcpasswd.yaml",
+		},
+		{
+			name:      "forward slash in name",
+			namespace: "foo/bar",
+			wantKey:   "groups/foobar.yaml",
+		},
+		{
+			name:      "normal namespace unchanged",
+			namespace: "http",
+			wantKey:   "groups/http.yaml",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			files, err := e.Generate(BuilderState{
+				Manifest: ManifestSpec{SchemaURL: "https://acme.com/schemas/0.1.0"},
+				Groups: []GroupInput{
+					{Namespace: tc.namespace, Attributes: []AttributeInput{{ID: "test.attr"}}},
+				},
+			}, nil)
+			if err != nil {
+				t.Fatalf("Generate error: %v", err)
+			}
+			if _, ok := files[tc.wantKey]; !ok {
+				t.Errorf("expected file %q, got keys: %v", tc.wantKey, keysOf(files))
+			}
+			// No entry may contain ".." as a path component.
+			for k := range files {
+				for _, seg := range strings.Split(k, "/") {
+					if seg == ".." {
+						t.Errorf("path traversal in generated key %q", k)
+					}
+				}
+			}
+		})
+	}
+}
+
 func keysOf(m map[string]string) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

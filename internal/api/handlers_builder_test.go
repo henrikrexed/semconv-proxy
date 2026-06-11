@@ -202,11 +202,11 @@ func TestIsVersionedSchemaURL(t *testing.T) {
 }
 
 func TestFirstNonEmptyStr(t *testing.T) {
-	if got := firstNonEmptyStr("", "b", "c"); got != "b" {
-		t.Errorf("firstNonEmptyStr = %q, want b", got)
+	if got := firstNonEmpty("", "b", "c"); got != "b" {
+		t.Errorf("firstNonEmpty = %q, want b", got)
 	}
-	if got := firstNonEmptyStr("", ""); got != "" {
-		t.Errorf("firstNonEmptyStr(all empty) = %q, want empty", got)
+	if got := firstNonEmpty("", ""); got != "" {
+		t.Errorf("firstNonEmpty(all empty) = %q, want empty", got)
 	}
 }
 

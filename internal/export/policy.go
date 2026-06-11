@@ -186,6 +186,11 @@ func policyTemplateByID(id string) (PolicyTemplate, bool) {
 // conforms to §10.2: modern rego (import rego.v1 + deny contains v if), a closed
 // semconv_attribute Violation with the full {type,id,category,group,attr} field
 // set. The returned name is the file base (without the .rego extension).
+//
+// Note: the Raw path is an intentional trusted-internal escape hatch — the rego
+// content is passed through verbatim with no further sanitisation. This is safe
+// because the builder is an internal tool gated by the same access controls as
+// the rest of the proxy; it does not accept raw rego from untrusted sources.
 func EmitPolicyRego(in PolicyInput) (string, string, error) {
 	if strings.TrimSpace(in.Raw) != "" {
 		name := sanitizePolicyName(firstNonEmpty(in.Name, "custom_check"))

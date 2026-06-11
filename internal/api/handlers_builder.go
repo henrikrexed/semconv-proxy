@@ -219,7 +219,7 @@ func (s *Server) handleBuilderSeed(w http.ResponseWriter, r *http.Request) {
 		a := seedAttribute{
 			ID:           e.Name,
 			Namespace:    namespaceFromAttr(e.Name),
-			Type:         firstNonEmptyStr(e.Type, defaultAttributeTypeSeed),
+			Type:         firstNonEmpty(e.Type, defaultAttributeTypeSeed),
 			ObservedType: e.Type,
 			CrossRef:     class,
 			SignalTypes:  e.SignalTypes,
@@ -280,7 +280,7 @@ func namespaceFromAttr(name string) string {
 	return "custom"
 }
 
-func firstNonEmptyStr(vals ...string) string {
+func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
 			return v
