@@ -28,8 +28,8 @@ func findWeaverBinary() string {
 	}
 }
 
-// TestGenerateWeaverRegistryCheck materialises the generated file set on disk and
-// runs `weaver registry check` against it, asserting the manifest is recognised.
+// TestGenerateWeaverRegistryCheck materializes the generated file set on disk and
+// runs `weaver registry check` against it, asserting the manifest is recognized.
 // Skips when the bundled v0.23 binary is unavailable (e.g. CI without the spike).
 func TestGenerateWeaverRegistryCheck(t *testing.T) {
 	bin := findWeaverBinary()

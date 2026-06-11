@@ -176,7 +176,7 @@ func (e *WeaverExporter) Generate(state BuilderState, defaultDep *DependencySpec
 		return nil, fmt.Errorf("export: weaver v0.23 manifest allows at most one dependency (weaver#604), got %d", len(deps))
 	}
 	for _, d := range deps {
-		man.Dependencies = append(man.Dependencies, genDep{SchemaURL: d.SchemaURL, RegistryPath: d.RegistryPath})
+		man.Dependencies = append(man.Dependencies, genDep(d))
 	}
 	manYAML, err := yaml.Marshal(man)
 	if err != nil {

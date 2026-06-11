@@ -106,12 +106,7 @@ func EmitWeaverConfig(spec ConfigSpec) (string, error) {
 		if len(f.Exclude) == 0 && len(f.ExcludeSamples) == 0 && f.MinLevel == "" && f.SignalType == "" {
 			continue
 		}
-		filters = append(filters, tomlFindingFilter{
-			Exclude:        f.Exclude,
-			ExcludeSamples: f.ExcludeSamples,
-			MinLevel:       f.MinLevel,
-			SignalType:     f.SignalType,
-		})
+		filters = append(filters, tomlFindingFilter(f))
 	}
 	if spec.AdvicePolicies != "" || spec.AdvicePreprocessor != "" || len(filters) > 0 {
 		cfg.LiveCheck = &tomlLiveCheck{

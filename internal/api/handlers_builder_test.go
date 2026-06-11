@@ -58,7 +58,7 @@ func TestBuilderExportZipOK(t *testing.T) {
 			t.Fatalf("open entry %s: %v", f.Name, err)
 		}
 		data, _ := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		got[f.Name] = string(data)
 	}
 	if _, ok := got["manifest.yaml"]; !ok {
@@ -291,7 +291,7 @@ func TestBuilderGenerateInvalidFindingLevel(t *testing.T) {
 	}
 }
 
-// TestBuilderGenerateValidFindingLevel confirms a recognised min_level passes the
+// TestBuilderGenerateValidFindingLevel confirms a recognized min_level passes the
 // filter validation and produces a .weaver.toml in the file set.
 func TestBuilderGenerateValidFindingLevel(t *testing.T) {
 	s := newTestServer(t)

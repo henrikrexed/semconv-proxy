@@ -32,7 +32,7 @@ func TestBundleZipRoundTrip(t *testing.T) {
 			t.Fatalf("open entry %s: %v", f.Name, err)
 		}
 		data, _ := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		got[f.Name] = string(data)
 	}
 

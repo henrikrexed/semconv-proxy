@@ -7,7 +7,7 @@ import (
 )
 
 // Policy stages are the rego package names Weaver evaluates (§10.2). The catalog
-// standardises on after_resolution — the stage where attribute checks see the
+// standardizes on after_resolution — the stage where attribute checks see the
 // fully resolved registry (imports/extends applied), confirmed against the
 // bundled v0.23 binary. The Stage field stays on the template so future
 // templates can target comparison_after_resolution / before_resolution / advice.
