@@ -3,7 +3,7 @@ name: semconv-proxy-chart
 description: Helm chart for SemConv Proxy — a transparent OTLP proxy that auto-discovers OpenTelemetry semantic conventions.
 type: application
 # Chart version. Bumped per chart release; CI may suffix -main.<sha7> for builds off main.
-version: 0.1.0
+version: 0.2.0
 # Application version (matches the semconv-proxy container image tag this chart targets by default).
 appVersion: "0.1.0"
 keywords:

@@ -45,10 +45,16 @@ Ingress (Web UI + API on the api port):
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/
 {{- end }}
 {{- end }}
-{{- if .Values.gateway.enabled }}
+{{- if or .Values.httpRoute.enabled .Values.gateway.enabled }}
 
-Gateway API:
-  kubectl get gateway,httproute -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+Gateway API (Web UI + REST API on the api port {{ .Values.service.ports.api }}):
+  kubectl get httproute -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- if .Values.gateway.enabled }}
+  kubectl get gateway -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- end }}
+{{- range (.Values.httpRoute.hostnames | default .Values.gateway.hostnames) }}
+  http://{{ . }}/
+{{- end }}
 {{- end }}
 
 Point your OTel Collectors at the gRPC ({{ .Values.service.ports.grpc }}) or HTTP ({{ .Values.service.ports.http }}) endpoint above.

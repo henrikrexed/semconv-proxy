@@ -102,6 +102,8 @@ ingress:
 
 # Gateway API ingress (preferred over legacy Ingress).
 # Requires the Gateway API CRDs and an installed Gateway controller in the cluster.
+# This block makes the chart create and manage its OWN Gateway. For clusters that
+# already run a shared Gateway, leave this disabled and use the httpRoute block below.
 gateway:
   enabled: false
   className: ""
@@ -111,6 +113,33 @@ gateway:
     - name: http
       port: 80
       protocol: HTTP
+
+# Gateway API HTTPRoute exposing the Web UI + REST API (both served on the api
+# port, 8080) through a Gateway. Two mutually-supportive modes:
+#   1. Existing/shared Gateway (recommended): set httpRoute.enabled=true and point
+#      httpRoute.parentRefs at a pre-existing Gateway. The chart does NOT create a
+#      Gateway in this mode.
+#   2. Self-managed Gateway: set gateway.enabled=true (above). The HTTPRoute then
+#      attaches to the chart's own Gateway automatically; httpRoute.parentRefs may
+#      stay empty.
+# OTLP ingest (4317/4318) is intentionally NOT routed here.
+httpRoute:
+  enabled: false
+  # Attach to a pre-existing Gateway. Each entry: name (required), plus optional
+  # namespace, sectionName (the Gateway listener name), and port.
+  parentRefs: []
+    # - name: shared-gateway
+    #   namespace: gateway-system
+    #   sectionName: https
+  # Hostnames the route answers for. Empty = match all hostnames on the listener.
+  # Falls back to gateway.hostnames when empty and gateway.enabled.
+  hostnames: []
+  # Path prefix to match. "/" serves both the Explorer UI and /api/v1/*.
+  pathPrefix: /
+  # Service port to route to. Defaults to the api port (service.ports.api, 8080),
+  # which serves the Web UI + REST API. Do NOT point this at the OTLP ports.
+  backendPort: ""
+  annotations: {}
 
 nodeSelector: {}
 tolerations: []
