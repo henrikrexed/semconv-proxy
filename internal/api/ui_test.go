@@ -21,7 +21,9 @@ func TestUIServesIndex(t *testing.T) {
 
 func TestUIServesAssets(t *testing.T) {
 	h := uiHandler()
-	for _, path := range []string{"/app.js", "/styles.css"} {
+	// The vendored Preact bundle lives in an embedded subdirectory; serving it
+	// proves `//go:embed ui/*` pulls in ui/vendor recursively.
+	for _, path := range []string{"/app.js", "/styles.css", "/builder.js", "/vendor/preact-htm.standalone.module.js"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {

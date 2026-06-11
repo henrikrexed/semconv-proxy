@@ -3,7 +3,7 @@
 const PAGE = 50;
 
 const state = {
-  scope: "community", // "community" | "mine" | "compare"
+  scope: "community", // "community" | "mine" | "compare" | "builder"
   q: "",
   filters: { type: new Set(), stability: new Set(), namespace: new Set() },
   offset: 0,
@@ -29,7 +29,7 @@ const meta = el("results-meta");
 // ---- URL hash (deep links) ----
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  if (["mine", "community", "compare"].includes(p.get("scope"))) state.scope = p.get("scope");
+  if (["mine", "community", "compare", "builder"].includes(p.get("scope"))) state.scope = p.get("scope");
   state.q = p.get("q") || "";
   state.selected = p.get("sel") || null;
   state.bucket = p.get("bucket") || null;
@@ -61,6 +61,9 @@ function normMine(e) {
 
 // ---- Fetching ----
 async function fetchPage(reset) {
+  // The Builder scope is a self-contained Preact island that fetches its own
+  // seed data; the list/compare fetch path does not apply to it.
+  if (state.scope === "builder") { showBuilder(); return; }
   if (reset) { state.offset = 0; state.items = []; }
   toast("Loading…");
   try {
@@ -388,7 +391,7 @@ function setScope(scope) {
 }
 
 function syncScopeButtons() {
-  for (const s of ["community", "mine", "compare"]) {
+  for (const s of ["community", "mine", "compare", "builder"]) {
     const btn = el("scope-" + s);
     btn.classList.toggle("active", state.scope === s);
     btn.setAttribute("aria-selected", String(state.scope === s));
@@ -396,12 +399,36 @@ function syncScopeButtons() {
 }
 
 // applyScopeChrome shows/hides the chrome that only applies to certain scopes:
-// faceted filtering is search-only; the bucket summary is compare-only.
+// faceted filtering is search-only; the bucket summary is compare-only; the
+// Builder takes over the whole canvas and hides the search/list chrome.
 function applyScopeChrome() {
   const compare = state.scope === "compare";
-  el("facets-toggle").hidden = compare;
-  if (compare) el("facets").hidden = true;
+  const builder = state.scope === "builder";
+  el("facets-toggle").hidden = compare || builder;
+  if (compare || builder) el("facets").hidden = true;
   el("compare-buckets").hidden = !compare;
+  el("search-form").hidden = builder;
+  el("results").hidden = builder;
+  el("builder").hidden = !builder;
+  if (builder) el("detail").hidden = true;
+}
+
+// showBuilder lazily mounts the Preact Builder island the first time the scope
+// is opened, then re-renders it. Loaded on demand so the ~16 KB vendored bundle
+// is never fetched by users who never open the Builder.
+let builderMounted = false;
+async function showBuilder() {
+  applyScopeChrome();
+  if (builderMounted) return;
+  builderMounted = true;
+  try {
+    const mod = await import("./builder.js");
+    mod.mount(el("builder"));
+  } catch (err) {
+    builderMounted = false;
+    el("builder").innerHTML =
+      '<p class="empty">Could not load the Builder: ' + esc(err.message) + "</p>";
+  }
 }
 
 let debounce;
@@ -414,6 +441,7 @@ function init() {
   el("scope-community").addEventListener("click", () => setScope("community"));
   el("scope-mine").addEventListener("click", () => setScope("mine"));
   el("scope-compare").addEventListener("click", () => setScope("compare"));
+  el("scope-builder").addEventListener("click", () => setScope("builder"));
   el("search-form").addEventListener("submit", (e) => e.preventDefault());
   el("q").addEventListener("input", (e) => {
     state.q = e.target.value.trim();

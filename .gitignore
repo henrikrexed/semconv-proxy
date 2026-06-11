@@ -13,8 +13,9 @@
 coverage.txt
 coverage.html
 
-# Dependency
-vendor/
+# Dependency (Go module vendoring at repo root only; the embedded UI bundle
+# under internal/api/ui/vendor/ must stay tracked since it is go:embed-ed)
+/vendor/
 
 # IDE
 .idea/
