@@ -87,12 +87,14 @@ nav:
       - api/index.md
       - Dictionary API: api/dictionary.md
       - Community SemConv API: api/community.md
+      - Builder & Compare API: api/builder.md
       - Health & Readiness: api/health.md
       - Metrics: api/metrics.md
       - Weaver Export: api/weaver-export.md
   - Operations:
       - operations/index.md
       - Web UI: operations/web-ui.md
+      - Weaver Asset Builder: operations/weaver-builder.md
       - Docker: operations/docker.md
       - Kubernetes / Helm: operations/kubernetes.md
       - Monitoring: operations/monitoring.md

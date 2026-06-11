@@ -11,16 +11,21 @@ http://<host>:8080/
 
 ## What it does
 
-SemConv Explorer searches and browses semantic conventions from two sources,
-toggled by the scope switch in the header:
+SemConv Explorer has four scopes, toggled by the scope switch in the header:
 
 - **Community** — the official OpenTelemetry registry embedded in the proxy
   (build-time pinned snapshot). Backed by
   [`GET /api/v1/semconv/community`](../api/community.md).
 - **My Telemetry** — the attributes the proxy has actually observed on the wire.
   Backed by [`GET /api/v1/dictionary`](../api/dictionary.md).
+- **Compare** — your live telemetry bucketed against the official registry
+  (matched / type-mismatch / deprecated / not-in-registry). Backed by
+  [`GET /api/v1/semconv/compare`](../api/builder.md#compare).
+- **Weaver Asset Builder** — author and export a custom Weaver registry from the
+  observed telemetry. See [Weaver Asset Builder](weaver-builder.md).
 
-Both scopes share the same faceted search experience:
+The **Community** and **My Telemetry** scopes share the same faceted search
+experience:
 
 - free-text search across name and brief;
 - facets for **signal type** (attribute / metric / span / event / entity),
@@ -29,7 +34,9 @@ Both scopes share the same faceted search experience:
 - a detail view per item (brief, note, stability, deprecation, enum members,
   examples, requirement level) with shareable deep links carried in the URL hash.
 
-The layout is responsive, so the same UI works on a laptop or a phone.
+The layout is responsive, so the same UI works on a laptop or a phone. The
+selected scope (and selection) is carried in the URL hash, so any view is
+shareable as a deep link.
 
 ## Accessing it
 
