@@ -297,7 +297,7 @@ func TestGenerateMergePreservesMetadata(t *testing.T) {
 	files, err := e.Generate(BuilderState{
 		Manifest: ManifestSpec{SchemaURL: "https://acme.com/schemas/0.1.0"},
 		Groups: []GroupInput{
-			{Namespace: "http", Attributes: []AttributeInput{{ID: "http.route"}}},                  // no metadata
+			{Namespace: "http", Attributes: []AttributeInput{{ID: "http.route"}}},                   // no metadata
 			{Namespace: "http", Brief: "Late brief.", Stability: "stable", Type: "attribute_group"}, // metadata only
 		},
 	}, nil)
@@ -374,8 +374,8 @@ func TestGenerateDerivesNamespaceFromID(t *testing.T) {
 func TestNamespaceFromID(t *testing.T) {
 	cases := map[string]string{
 		"http.server.request": "http",
-		"db":                   "db",
-		"":                     "",
+		"db":                  "db",
+		"":                    "",
 	}
 	for in, want := range cases {
 		if got := namespaceFromID(in); got != want {
